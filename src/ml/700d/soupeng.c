@@ -392,7 +392,7 @@ static void se_progress_hook(void *ctx, const char *stage, int pct)
     if (gui_menu_shown()) return;
     if (pct % 5 == 0)
         bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), 10, 440,
-                   "SOUP %-12s %s %3d%%  ",
+                   "SOUP %s %s %d%%   ",
                    se_stocks[se_stock_index].name, stage, pct);
 }
 
@@ -460,7 +460,7 @@ static se_err se_develop_preview(const char *cr2_path, const char *out_path,
     pv = fio_malloc(plen);
     if (!pv) {
         rc = SE_E_NOMEM;
-        se_logf("no memory for the %u KB preview (%d KB free)", plen >> 10,
+        se_logf("no memory for the %d KB preview (%d KB free)", (int)(plen >> 10),
                 GetFreeMemForMalloc() >> 10);
         goto done;
     }
@@ -547,17 +547,27 @@ done:
  * Magic Lantern writes a name like that, so it may be refused; if it is,
  * FLM_1234.JPG, and the log says which.
  */
+/*
+ * Built by hand, not with snprintf: the snprintf here is Canon's, and it
+ * does not know %.*s. The first build on the camera asked it for exactly
+ * that and tried to create a file called ".*s.FLM.JPG".
+ */
 static void se_out_names(const char *cr2, char *a, char *b, size_t cap)
 {
     size_t l = strlen(cr2);                 /* ".../IMG_1234.CR2" */
-    const char *name = cr2 + l;
+    size_t dir = l;                         /* length including the '/' */
     const char *digits;
-    while (name > cr2 && name[-1] != '/') name--;
+    while (dir > 0 && cr2[dir - 1] != '/') dir--;
     digits = cr2 + l - 4;                   /* the four before ".CR2" */
-    if (digits - 4 >= name) digits -= 4; else digits = name;
+    if (digits - 4 >= cr2 + dir) digits -= 4; else digits = cr2 + dir;
 
-    snprintf(a, cap, "%.*s.FLM.JPG", (int)(l - 4), cr2);
-    snprintf(b, cap, "%.*sFLM_%.4s.JPG", (int)(name - cr2), cr2, digits);
+    if (l - 4 + 9 >= cap || dir + 13 >= cap) { a[0] = b[0] = 0; return; }
+    memcpy(a, cr2, l - 4);
+    strcpy(a + l - 4, ".FLM.JPG");
+    memcpy(b, cr2, dir);
+    strcpy(b + dir, "FLM_");
+    memcpy(b + dir + 4, digits, 4);
+    strcpy(b + dir + 8, ".JPG");
 }
 
 static void se_develop_task(void *arg)
@@ -598,7 +608,7 @@ static void se_develop_task(void *arg)
         se_last_ms = R.ms_total;
         snprintf(se_status, sizeof se_status, "%s %d.%ds",
                  out + strlen(get_dcim_dir()) + 1, R.ms_total / 1000, (R.ms_total % 1000) / 100);
-        se_logf("wrote %s: %dx%d, %d KB, look hash %08X", out, R.ow, R.oh,
+        se_logf("wrote %s: %dx%d, %d KB, look hash %08x", out, R.ow, R.oh,
                 R.bytes >> 10, R.hash);
         se_logf("time: hdr %d read %d stream %d total %d ms; arena peak %d KB",
                 R.ms_hdr, R.ms_read, R.ms_stream, R.ms_total, (int)(R.arena_peak >> 10));
