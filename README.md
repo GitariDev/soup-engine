@@ -64,8 +64,11 @@ as a Magic Lantern module rather than a patched binary. Install Magic
 Lantern's 700D build first, then copy `ML/modules/soupeng.mo`, the
 `ML/FILM` folder and `ML/SETTINGS/soupeng.en` from a `make card-700d`
 onto the card (see [`src/README.md`](src/README.md)). Soup Engine then
-lives under **Shoot** in Magic Lantern's menu: pick a film, and every
-shot gets `FLM_1234.JPG` beside its raw. Quarter size takes about 11
+lives under **Shoot** in Magic Lantern's menu, and the current film is
+shown at the bottom of the shooting screen. To change it quickly, press
+**SET** in shooting mode: a list opens, the **up and down arrows** move
+(the dial stays Canon's, for exposure), SET chooses, Trash cancels.
+Every shot gets `FLM_1234.JPG` beside its raw. Quarter size takes about 11
 seconds a frame, half about 40, full about three minutes; frames queue
 while you keep shooting, and the camera will not switch itself off with
 frames pending.

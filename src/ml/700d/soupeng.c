@@ -37,6 +37,8 @@
 #include <lens.h>
 #include <fileprefix.h>
 #include <powersave.h>
+#include <propvalues.h>     /* lv */
+#include <gui-common.h>     /* display_is_on, is_play_mode, redraw */
 
 #include "se.h"
 #include "stock.h"
@@ -77,6 +79,10 @@ static const char *se_size_name(void) { return se_size == 1 ? "full" : se_size =
 static CONFIG_INT("soupeng.auto",   se_auto,        1);   /* develop every shot */
 
 static void se_menu_film_max(void);       /* defined below the menu table  */
+static void se_draw_label(void);          /* the screen: defined below the develop */
+static void se_pick_draw(int full);
+static void se_pick_close(int apply);
+static int  se_pick_open, se_pick_sel, se_pick_idle;
 
 static volatile int se_busy;              /* the worker is developing     */
 static char         se_status[64];        /* what the last develop did     */
@@ -596,9 +602,11 @@ static se_err se_develop_preview(const char *cr2_path, const char *out_path,
     ex.aperture      = info.aperture;
     ex.iso           = info.iso;
     {
-        uint8_t *strip = SE_NEW(&arena, uint8_t, (size_t)8 * R->ow * 3);
+        /* 4:2:0, as every camera JPEG is: half the encoder's blocks and a
+         * third off the file. tools/previewcheck takes "420" to match. */
+        uint8_t *strip = SE_NEW(&arena, uint8_t, SE_JPEG_STRIP_BYTES(R->ow, 1));
         if (!strip) { rc = SE_E_NOMEM; goto done; }
-        rc = se_jpeg_begin(enc, R->ow, R->oh, 88, strip, &ex, out_sink, &out);
+        rc = se_jpeg_begin2(enc, R->ow, R->oh, 88, strip, &ex, out_sink, &out, 1);
         if (rc != SE_OK) goto done;
     }
 
@@ -718,6 +726,14 @@ static unsigned int se_watch_cbr(unsigned int ctx)
         se_last_folder_number = folder;
     }
 
+    /* the screen: the label, and the picker's idle timeout */
+    if (se_pick_open) {
+        if (++se_pick_idle > 6) se_pick_close(0);
+        else se_pick_draw(0);       /* Canon may have painted over it */
+    } else {
+        se_draw_label();
+    }
+
     /* ripen what is waiting */
     for (i = se_q_head; i < se_q_tail; i++) {
         se_job *j = &se_q[i % SE_QUEUE];
@@ -826,6 +842,139 @@ static void se_worker_task(void *arg)
     if (held) powersave_permit();
 }
 
+/* ------------------------------------------------- the label, the picker */
+/*
+ * Two things on Canon's shooting screen, both drawn on Magic Lantern's
+ * bitmap layer over it.
+ *
+ * The label: one line at the bottom, "SOUP PROVIA quarter", redrawn once
+ * a second from the watcher because Canon repaints its screen whenever
+ * it likes. The progress line, while a frame is developing, takes the
+ * same spot.
+ *
+ * The picker: SET, in shooting mode, opens a list of the films over the
+ * screen with the current one highlighted; the up and down arrows move,
+ * SET chooses, Trash or MENU cancels, a half-press of the shutter cancels
+ * and still fires, and it closes by itself after a few idle seconds. SET
+ * is free in shooting mode on this body -- Canon leaves it unassigned,
+ * and Magic Lantern claims it only when its SET+MainDial tweak is on.
+ * The main dial does not move it: in shooting mode Canon turns the dial
+ * into exposure changes before it ever becomes a button event, so it
+ * never reaches a module. The cases below keep it harmless if it does.
+ */
+#define SE_LABEL_X   10
+#define SE_LABEL_Y   440
+
+static void se_draw_label(void)
+{
+    if (!se_nstocks || se_busy || se_pick_open) return;
+    if (gui_menu_shown() || lv || is_play_mode() || !display_is_on()) return;
+    if (se_stock_index < 0 || se_stock_index >= se_nstocks) se_stock_index = 0;
+    bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), SE_LABEL_X, SE_LABEL_Y,
+               "SOUP %s  %s%s   ", se_stocks[se_stock_index].name, se_size_name(),
+               se_auto ? "" : "  manual");
+}
+
+#define SE_PICK_X   60
+#define SE_PICK_Y   30
+#define SE_PICK_W   600
+#define SE_PICK_ROW 24
+
+/*
+ * `full` paints the box and border as well as the text: on opening and
+ * on every key. The once-a-second repaint -- there in case Canon drew
+ * its screen over the picker -- re-stamps only the text, in place, which
+ * is invisible when nothing changed. Filling the box each second was a
+ * visible flicker.
+ */
+static void se_pick_draw(int full)
+{
+    int i, h = 70 + se_nstocks * SE_PICK_ROW + 20;
+    if (full) {
+        bmp_fill(COLOR_BLACK, SE_PICK_X, SE_PICK_Y, SE_PICK_W, h);
+        bmp_draw_rect(COLOR_WHITE, SE_PICK_X, SE_PICK_Y, SE_PICK_W, h);
+    }
+    bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), SE_PICK_X + 20, SE_PICK_Y + 8, "FILM");
+    for (i = 0; i < se_nstocks; i++) {
+        int y = SE_PICK_Y + 40 + i * SE_PICK_ROW;
+        uint32_t f = (i == se_pick_sel) ? FONT(FONT_MED, COLOR_BLACK, COLOR_WHITE)
+                                        : FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK);
+        bmp_printf(f, SE_PICK_X + 20, y, " %s ", se_stocks[i].name);
+    }
+    bmp_printf(FONT(FONT_SMALL, COLOR_CYAN, COLOR_BLACK), SE_PICK_X + 20,
+               SE_PICK_Y + 44 + se_nstocks * SE_PICK_ROW, "%s", se_stocks[se_pick_sel].desc);
+    bmp_printf(FONT(FONT_SMALL, COLOR_WHITE, COLOR_BLACK), SE_PICK_X + 20,
+               SE_PICK_Y + h - 18, "UP/DOWN move   SET choose   TRASH cancel");
+}
+
+static void se_pick_close(int apply)
+{
+    if (apply) {
+        se_stock_index = se_pick_sel;
+        se_stock_id = (int)se_name_id(se_stocks[se_stock_index].name);
+    }
+    se_pick_open = 0;
+    redraw();                       /* Canon paints its screen back */
+    se_draw_label();
+}
+
+/*
+ * Every key, before Magic Lantern or Canon see it. Returning 0 keeps it.
+ * The convention is Magic Lantern's game module's, which is the shipped
+ * example of a module owning the keys.
+ */
+static unsigned int se_key_cbr(unsigned int key)
+{
+    if (!se_pick_open) {
+        if (key == MODULE_KEY_PRESS_SET && se_nstocks && !ml_shutdown_requested
+            && !gui_menu_shown() && !lv && !is_play_mode() && display_is_on()) {
+            se_pick_open = 1;
+            se_pick_sel  = se_stock_index;
+            se_pick_idle = 0;
+            se_pick_draw(1);
+            return 0;
+        }
+        return 1;
+    }
+
+    se_pick_idle = 0;
+    switch (key) {
+    case MODULE_KEY_WHEEL_UP:
+    case MODULE_KEY_WHEEL_LEFT:
+    case MODULE_KEY_PRESS_UP:
+    case MODULE_KEY_PRESS_LEFT:
+        se_pick_sel = (se_pick_sel + se_nstocks - 1) % se_nstocks;
+        se_pick_draw(1);
+        return 0;
+    case MODULE_KEY_WHEEL_DOWN:
+    case MODULE_KEY_WHEEL_RIGHT:
+    case MODULE_KEY_PRESS_DOWN:
+    case MODULE_KEY_PRESS_RIGHT:
+        se_pick_sel = (se_pick_sel + 1) % se_nstocks;
+        se_pick_draw(1);
+        return 0;
+    case MODULE_KEY_PRESS_SET:
+        se_pick_close(1);
+        return 0;
+    case MODULE_KEY_UNPRESS_SET:
+    case MODULE_KEY_UNPRESS_UDLR:
+        return 0;                   /* the releases of keys we took */
+    case MODULE_KEY_TRASH:
+    case MODULE_KEY_MENU:
+    case MODULE_KEY_Q:
+    case MODULE_KEY_INFO:
+    case MODULE_KEY_PLAY:
+        se_pick_close(0);
+        return 0;
+    case MODULE_KEY_PRESS_HALFSHUTTER:
+    case MODULE_KEY_PRESS_FULLSHUTTER:
+        se_pick_close(0);
+        return 1;                   /* and the shutter still fires */
+    default:
+        return 1;
+    }
+}
+
 /* ---------------------------------------------------------------- menu */
 
 static MENU_UPDATE_FUNC(se_film_update)
@@ -906,7 +1055,7 @@ static struct menu_entry se_menu[] =
         .name           = "Soup Engine",
         .select         = menu_open_submenu,
         .update         = se_top_update,
-        .help           = "Film looks, in the camera.",
+        .help           = "Film looks, in the camera. SET in shooting mode opens the film picker (arrows move).",
         .help2          = "Films are the .fs files in ML/FILM on the card.",
         .submenu_width  = 710,
         .children       = (struct menu_entry[]) {
@@ -1004,6 +1153,7 @@ MODULE_INFO_END()
 
 MODULE_CBRS_START()
     MODULE_CBR(CBR_SECONDS_CLOCK, se_watch_cbr, 0)
+    MODULE_CBR(CBR_KEYPRESS,      se_key_cbr,   0)
 MODULE_CBRS_END()
 
 MODULE_CONFIGS_START()
