@@ -65,7 +65,12 @@ static int       se_film_dir_missing;
  */
 static CONFIG_INT("soupeng.stock",  se_stock_index, 0);
 static CONFIG_INT("soupeng.source", se_source,      0);   /* 0 JPEG, 1 RAW */
-static CONFIG_INT("soupeng.size",   se_size,        0);   /* 0 half, 1 full */
+static CONFIG_INT("soupeng.size",   se_size,        0);   /* 0 half, 1 full, 2 quarter */
+
+/* The numbering is the order the choices were added in, so a saved
+ * config keeps meaning what it meant. */
+static int se_scale(void) { return se_size == 1 ? 1 : se_size == 2 ? 4 : 2; }
+static const char *se_size_name(void) { return se_size == 1 ? "full" : se_size == 2 ? "quarter" : "half"; }
 static CONFIG_INT("soupeng.auto",   se_auto,        1);   /* develop every shot */
 
 static void se_menu_film_max(void);       /* defined below the menu table  */
@@ -838,7 +843,7 @@ static void se_develop_job(se_job *j)
     const se_stock *st;
     se_result R;
     se_err rc;
-    int scale = se_size ? 1 : 2;
+    int scale = se_scale();
 
     if (se_stock_index < 0 || se_stock_index >= se_nstocks) se_stock_index = 0;
     st = &se_stocks[se_stock_index];
@@ -854,7 +859,7 @@ static void se_develop_job(se_job *j)
     se_stage = "starting"; se_pct = 0;
     se_waiting = se_q_count() - 1;
     se_logf("develop %s + %s, %s size, %d waiting, %d KB free", j->path, st->name,
-            scale == 1 ? "full" : "half", se_waiting, GetFreeMemForMalloc() >> 10);
+            se_size_name(), se_waiting, GetFreeMemForMalloc() >> 10);
 
     rc = se_develop_preview(j->path, out, st, scale, &R);
 
@@ -1045,9 +1050,10 @@ static struct menu_entry se_menu[] =
             {
                 .name       = "Size",
                 .priv       = &se_size,
-                .max        = 1,
-                .choices    = CHOICES("Half", "Full"),
-                .help       = "Half is 2592x1728 and takes about 45 s. Full is 18 MP and about 3 min.",
+                .max        = 2,
+                .choices    = CHOICES("Half", "Full", "Quarter"),
+                .help       = "Half is 2592x1728, about 40 s. Full is 18 MP, about 3 min.",
+                .help2      = "Quarter is 1296x864 and quick: a frame to share, not to print.",
             },
             {
                 .name       = "Source",
@@ -1105,7 +1111,7 @@ static unsigned int se_module_init(void)
 
     se_logf("engine format %d, %d films, source %s, size %s, auto %s; free: malloc %d KB, AllocateMemory %d KB",
             SE_STOCK_VERSION, se_nstocks, se_source ? "RAW" : "JPEG",
-            se_size ? "full" : "half", se_auto ? "on" : "off",
+            se_size_name(), se_auto ? "on" : "off",
             GetFreeMemForMalloc() >> 10, GetFreeMemForAllocateMemory() >> 10);
     se_log_flush();
     return 0;
