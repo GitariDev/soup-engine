@@ -68,7 +68,10 @@ lives under **Shoot** in Magic Lantern's menu, and the current film is
 shown at the bottom of the shooting screen. To change it quickly, press
 **SET** in shooting mode: a list opens, the **up and down arrows** move
 (the dial stays Canon's, for exposure), SET chooses, Trash cancels.
-Every shot gets `FLM_1234.JPG` beside its raw. Quarter size takes about 11
+The same list offers **Develop last shot** and an **Auto develop**
+switch, so you can shoot with auto off, judge on the back screen, and
+develop only the frames that deserve it. With auto on, every shot gets
+`FLM_1234.JPG` beside its raw. Quarter size takes about 11
 seconds a frame, half about 40, full about three minutes; frames queue
 while you keep shooting, and the camera will not switch itself off with
 frames pending.

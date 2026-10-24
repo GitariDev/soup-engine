@@ -11,7 +11,9 @@ Quick picker
 
 In shooting mode press SET. The up and down arrows move (not the
 dial, which Canon keeps for exposure), SET chooses, Trash cancels.
-The current film is shown at the bottom of the shooting screen.
+Under the films: DEVELOP LAST SHOT, and AUTO DEVELOP on or off. With
+auto off, shoot and look first, then develop the shot you want. The
+current film is shown at the bottom of the shooting screen.
 
 Sizes
 -----

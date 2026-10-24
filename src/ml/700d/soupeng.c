@@ -712,15 +712,20 @@ static unsigned int se_watch_cbr(unsigned int ctx)
         return 0;
     }
 
-    if (se_auto && se_nstocks && (num != se_last_file_number || folder != se_last_folder_number)) {
-        int n = se_last_file_number, steps = 0;
-        /* a burst can move the counter by more than one between looks */
-        while (n != num && steps < SE_QUEUE) {
-            char path[FIO_MAX_PATH_LENGTH];
-            n = n >= 9999 ? 1 : n + 1;
-            snprintf(path, sizeof path, "%s/%s%04d.CR2", get_dcim_dir(), get_file_prefix(), n);
-            if (se_q_push(path, 0)) steps++;
-            else break;
+    if (num != se_last_file_number || folder != se_last_folder_number) {
+        /* Queue only with auto on, but follow the counter either way: a
+         * shot taken with auto off is not a backlog to develop the moment
+         * it is switched back on. */
+        if (se_auto && se_nstocks) {
+            int n = se_last_file_number, steps = 0;
+            /* a burst can move the counter by more than one between looks */
+            while (n != num && steps < SE_QUEUE) {
+                char path[FIO_MAX_PATH_LENGTH];
+                n = n >= 9999 ? 1 : n + 1;
+                snprintf(path, sizeof path, "%s/%s%04d.CR2", get_dcim_dir(), get_file_prefix(), n);
+                if (se_q_push(path, 0)) steps++;
+                else break;
+            }
         }
         se_last_file_number = num;
         se_last_folder_number = folder;
@@ -855,7 +860,11 @@ static void se_worker_task(void *arg)
  * The picker: SET, in shooting mode, opens a list of the films over the
  * screen with the current one highlighted; the up and down arrows move,
  * SET chooses, Trash or MENU cancels, a half-press of the shutter cancels
- * and still fires, and it closes by itself after a few idle seconds. SET
+ * and still fires, and it closes by itself after a few idle seconds.
+ * Under the films, two more rows: DEVELOP LAST SHOT queues the newest
+ * raw and closes, and AUTO DEVELOP flips the watcher and stays open --
+ * so a shot can be judged on the back screen before it is developed:
+ * auto off, shoot, look, SET, develop the one that deserves it. SET
  * is free in shooting mode on this body -- Canon leaves it unassigned,
  * and Magic Lantern claims it only when its SET+MainDial tweak is on.
  * The main dial does not move it: in shooting mode Canon turns the dial
@@ -876,9 +885,12 @@ static void se_draw_label(void)
 }
 
 #define SE_PICK_X   60
-#define SE_PICK_Y   30
+#define SE_PICK_Y   8
 #define SE_PICK_W   600
 #define SE_PICK_ROW 24
+#define SE_PICK_DEVELOP (se_nstocks)        /* the two rows under the films */
+#define SE_PICK_AUTO    (se_nstocks + 1)
+#define SE_PICK_ROWS    (se_nstocks + 2)
 
 /*
  * `full` paints the box and border as well as the text: on opening and
@@ -889,20 +901,31 @@ static void se_draw_label(void)
  */
 static void se_pick_draw(int full)
 {
-    int i, h = 70 + se_nstocks * SE_PICK_ROW + 20;
+    int i, h = 70 + SE_PICK_ROWS * SE_PICK_ROW + 20;
+    const char *desc;
     if (full) {
         bmp_fill(COLOR_BLACK, SE_PICK_X, SE_PICK_Y, SE_PICK_W, h);
         bmp_draw_rect(COLOR_WHITE, SE_PICK_X, SE_PICK_Y, SE_PICK_W, h);
     }
     bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), SE_PICK_X + 20, SE_PICK_Y + 8, "FILM");
-    for (i = 0; i < se_nstocks; i++) {
+    for (i = 0; i < SE_PICK_ROWS; i++) {
         int y = SE_PICK_Y + 40 + i * SE_PICK_ROW;
         uint32_t f = (i == se_pick_sel) ? FONT(FONT_MED, COLOR_BLACK, COLOR_WHITE)
                                         : FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK);
-        bmp_printf(f, SE_PICK_X + 20, y, " %s ", se_stocks[i].name);
+        if (i < se_nstocks)
+            bmp_printf(f, SE_PICK_X + 20, y, " %s%s ", se_stocks[i].name,
+                       i == se_stock_index ? "  *" : "");
+        else if (i == SE_PICK_DEVELOP)
+            bmp_printf(f, SE_PICK_X + 20, y, " DEVELOP LAST SHOT ");
+        else
+            bmp_printf(f, SE_PICK_X + 20, y, " AUTO DEVELOP  %s ", se_auto ? "ON " : "OFF");
     }
+    if (se_pick_sel < se_nstocks)      desc = se_stocks[se_pick_sel].desc;
+    else if (se_pick_sel == SE_PICK_DEVELOP) desc = "Develop the newest raw with the film marked *";
+    else desc = se_auto ? "Every shot is developed as it is taken"
+                        : "Shots are kept raw until you ask";
     bmp_printf(FONT(FONT_SMALL, COLOR_CYAN, COLOR_BLACK), SE_PICK_X + 20,
-               SE_PICK_Y + 44 + se_nstocks * SE_PICK_ROW, "%s", se_stocks[se_pick_sel].desc);
+               SE_PICK_Y + 44 + SE_PICK_ROWS * SE_PICK_ROW, "%-56s", desc);
     bmp_printf(FONT(FONT_SMALL, COLOR_WHITE, COLOR_BLACK), SE_PICK_X + 20,
                SE_PICK_Y + h - 18, "UP/DOWN move   SET choose   TRASH cancel");
 }
@@ -943,18 +966,30 @@ static unsigned int se_key_cbr(unsigned int key)
     case MODULE_KEY_WHEEL_LEFT:
     case MODULE_KEY_PRESS_UP:
     case MODULE_KEY_PRESS_LEFT:
-        se_pick_sel = (se_pick_sel + se_nstocks - 1) % se_nstocks;
+        se_pick_sel = (se_pick_sel + SE_PICK_ROWS - 1) % SE_PICK_ROWS;
         se_pick_draw(1);
         return 0;
     case MODULE_KEY_WHEEL_DOWN:
     case MODULE_KEY_WHEEL_RIGHT:
     case MODULE_KEY_PRESS_DOWN:
     case MODULE_KEY_PRESS_RIGHT:
-        se_pick_sel = (se_pick_sel + 1) % se_nstocks;
+        se_pick_sel = (se_pick_sel + 1) % SE_PICK_ROWS;
         se_pick_draw(1);
         return 0;
     case MODULE_KEY_PRESS_SET:
-        se_pick_close(1);
+        if (se_pick_sel == SE_PICK_AUTO) {
+            se_auto = !se_auto;             /* and stay open */
+            se_pick_draw(1);
+        } else if (se_pick_sel == SE_PICK_DEVELOP) {
+            char cr2[FIO_MAX_PATH_LENGTH];
+            se_pick_close(0);
+            if (se_newest_cr2(cr2, sizeof cr2) == 0 && se_q_push(cr2, 1))
+                NotifyBox(1000, "Soup: developing %s", cr2 + strlen(get_dcim_dir()) + 1);
+            else
+                NotifyBox(1500, "Soup: no raw to develop");
+        } else {
+            se_pick_close(1);
+        }
         return 0;
     case MODULE_KEY_UNPRESS_SET:
     case MODULE_KEY_UNPRESS_UDLR:
