@@ -623,10 +623,76 @@ done:
     return rc;
 }
 
-/* The benchmark task: five develops of the newest raw at half size, the
- * output thrown away, one line of the log each. About four minutes. */
+/*
+ * How fast is this processor, and is its cache doing anything?
+ *
+ * The five-way split said every stage of the develop is three to five
+ * times slower than the core should manage, uniformly -- which is not
+ * what a slow algorithm looks like, it is what a slow processor or a
+ * cache that is not being used looks like. These two loops tell them
+ * apart. The first touches no memory at all: its time is the clock.
+ * The second walks a 4 KB block, which fits the data cache many times
+ * over, so its time is the cost of a cached load if the block is
+ * cached and of a bus cycle if it is not; it runs over three kinds of
+ * memory the develop uses.
+ */
+#define SE_CPU_ITERS   (20 * 1000 * 1000)
+#define SE_MEM_BLOCK   4096
+#define SE_MEM_PASSES  2000
+
+static volatile uint32_t se_bench_sink;
+
+static int se_bench_cpu(void)
+{
+    uint32_t a = 1, b = 2, c = 3;
+    int i, t0 = get_ms_clock();
+    for (i = 0; i < SE_CPU_ITERS; i++) {
+        a = a * 3 + b;
+        b ^= a >> 3;
+        c += b;
+    }
+    se_bench_sink = a + b + c;
+    return get_ms_clock() - t0;
+}
+
+static int se_bench_mem(const uint8_t *block)
+{
+    uint32_t s = 0;
+    int p, i, t0 = get_ms_clock();
+    for (p = 0; p < SE_MEM_PASSES; p++)
+        for (i = 0; i < SE_MEM_BLOCK; i += 4)
+            s += *(const volatile uint32_t *)(block + i);
+    se_bench_sink = s;
+    return get_ms_clock() - t0;
+}
+
+static uint8_t se_bench_static[SE_MEM_BLOCK];
+
+static void se_bench_machine(void)
+{
+    uint8_t *arena = __mem_malloc(SE_MEM_BLOCK, MEM_TEMPORARY, __FILE__, __LINE__);
+    uint8_t *dma   = fio_malloc(SE_MEM_BLOCK);
+    int cpu = se_bench_cpu();
+    se_logf("bench cpu: %d M loop iterations in %d ms", SE_CPU_ITERS / 1000000, cpu);
+    se_logf("bench 4KB x %d reads: static %d ms, arena %d ms, fio %d ms",
+            SE_MEM_PASSES,
+            se_bench_mem(se_bench_static),
+            arena ? se_bench_mem(arena) : -1,
+            dma   ? se_bench_mem(dma)   : -1);
+    se_logf("bench addresses: code %x, static %x, arena %x, fio %x",
+            (unsigned)(uintptr_t)&se_bench_cpu, (unsigned)(uintptr_t)se_bench_static,
+            (unsigned)(uintptr_t)arena, (unsigned)(uintptr_t)dma);
+    if (arena) free(arena);
+    if (dma) fio_free(dma);
+    se_log_flush();
+}
+
+/* The benchmark task: the machine, then five develops of the newest raw
+ * at half size, the output thrown away, one line of the log each. About
+ * four minutes. */
 static void se_bench_task(void *arg)
 {
+    se_bench_machine();
     char cr2[FIO_MAX_PATH_LENGTH];
     const char *names[] = { "", "decode", "decode+look, no halation/grain",
                             "decode+look", "decode+look+encode",
