@@ -71,6 +71,18 @@ static CONFIG_INT("soupeng.auto",   se_auto,        1);   /* develop every shot 
 static void se_menu_film_max(void);       /* defined below the menu table  */
 
 static volatile int se_busy;              /* the worker is developing     */
+
+/*
+ * The benchmark: the same develop with stages switched off, so the log
+ * says where the time goes ON THE CAMERA rather than on the desktop,
+ * where the proportions are not the same. 0 is the normal develop.
+ *   1  decode only; the look and the encoder never see a row
+ *   2  decode + look, with halation and grain off
+ *   3  decode + look
+ *   4  decode + look + encode, the normal path
+ *   5  as 4, with the preview copied into cached memory first
+ */
+static int se_bench_mode;
 static char         se_status[64];        /* what the last develop did     */
 static int          se_done, se_failed;   /* this session                  */
 
@@ -411,6 +423,7 @@ static int look_emit(void *ctx, const uint8_t *row, int width)
 {
     look_ctx *L = (look_ctx *)ctx;
     L->hash = se_hash_bytes(L->hash, row, width * 3);
+    if (se_bench_mode == 2 || se_bench_mode == 3) return 0;   /* no encoder */
     if (se_jpeg_write_rows(L->enc, row, 1) != SE_OK) { L->err = 1; return -1; }
     return 0;
 }
@@ -421,6 +434,7 @@ static int look_rows(void *ctx, const uint8_t *rgb, int nrows, int width)
     /* The one place to stop a frame in flight: once a row batch, which
      * is a few milliseconds. The partial file is removed by the caller. */
     if (ml_shutdown_requested) { L->aborted = 1; L->err = 1; return -1; }
+    if (se_bench_mode == 1) return 0;                          /* decode only */
     if (width != L->ow) {
         if (!L->err) se_logf("decoder gave %d columns, expected %d", width, L->ow);
         L->err = 1; return -1;
@@ -487,6 +501,7 @@ static se_err se_develop_preview(const char *cr2_path, const char *out_path,
     se_jpeg *enc;
     uint32_t poff = 0, plen = 0, got;
     int pw, ph, t0, t1, t2, t3;
+    int pv_cached = 0;
     se_err rc;
 
     memset(&out, 0, sizeof out);
@@ -524,12 +539,20 @@ static se_err se_develop_preview(const char *cr2_path, const char *out_path,
     }
     if (read_at(in, poff, pv, plen) != 0) { rc = SE_E_IO; se_logf("preview read failed"); goto done; }
     FIO_CloseFile(in); in = 0;
+    if (se_bench_mode == 5) {
+        /* the decoder reads the entropy-coded bytes one at a time, and
+         * fio_malloc's memory is uncached: is that where the time goes? */
+        uint8_t *c = __mem_malloc(plen, MEM_TEMPORARY, __FILE__, __LINE__);
+        if (c) { memcpy(c, pv, plen); fio_free(pv); pv = c; pv_cached = 1; }
+        else se_logf("bench: no cached memory for the preview copy");
+    }
     t2 = get_ms_clock();
 
     /* --- the look and the working memory ------------------------------- */
     se_jpeg_scaled_size(ji.width, ji.height, scale, &R->ow, &R->oh);
     R->scale = scale;
     se_look_from_stock(st, scale, &lk);
+    if (se_bench_mode == 2) { lk.hal_amount = 0; lk.grain = 0; }
     {
         int r0 = lk.hal_radius, a0 = lk.hal_amount;
         /* Same budget as tools/previewcheck.c, or the two grade differently
@@ -595,9 +618,41 @@ done:
     if (in) FIO_CloseFile(in);
     if (out.buf) fio_free(out.buf);
     if (amem) free(amem);
-    if (pv) fio_free(pv);
+    if (pv) { if (pv_cached) free(pv); else fio_free(pv); }
     if (hdr) fio_free(hdr);
     return rc;
+}
+
+/* The benchmark task: five develops of the newest raw at half size, the
+ * output thrown away, one line of the log each. About four minutes. */
+static void se_bench_task(void *arg)
+{
+    char cr2[FIO_MAX_PATH_LENGTH];
+    const char *names[] = { "", "decode", "decode+look, no halation/grain",
+                            "decode+look", "decode+look+encode",
+                            "decode+look+encode, preview cached" };
+    int mode;
+
+    if (se_newest_cr2(cr2, sizeof cr2) != 0) { se_logf("bench: no CR2"); goto out; }
+    if (se_stock_index < 0 || se_stock_index >= se_nstocks) se_stock_index = 0;
+    se_logf("bench: %s + %s, half size", cr2, se_stocks[se_stock_index].name);
+    for (mode = 1; mode <= 5 && !ml_shutdown_requested; mode++) {
+        se_result R;
+        se_err rc;
+        se_bench_mode = mode;
+        se_stage = names[mode]; se_pct = 0;
+        rc = se_develop_preview(cr2, "ML/LOGS/BENCH.TMP", &se_stocks[se_stock_index], 2, &R);
+        FIO_RemoveFile("ML/LOGS/BENCH.TMP");
+        if (rc == SE_OK)
+            se_logf("bench %d %s: stream %d ms, hash %08x", mode, names[mode], R.ms_stream, R.hash);
+        else
+            se_logf("bench %d %s: failed, %s", mode, names[mode], se_strerror(rc));
+    }
+    se_bench_mode = 0;
+    if (!ml_shutdown_requested) NotifyBox(3000, "Soup: benchmark done, see SOUPENG.LOG");
+out:
+    se_log_flush();
+    se_busy = 0;
 }
 
 /* ------------------------------------------------------------ the queue */
@@ -781,6 +836,8 @@ static void se_worker_task(void *arg)
         if (pending && !held) { powersave_prohibit(); held = 1; }
         if (!pending && held) { powersave_permit();   held = 0; }
 
+        if (se_busy) { msleep(500); continue; }     /* the benchmark has the engine */
+
         if (pending) {
             se_job *j = &se_q[se_q_head % SE_QUEUE];
             if (j->ready > 0) {
@@ -844,6 +901,19 @@ static MENU_UPDATE_FUNC(se_auto_update)
 {
     if (se_auto && !se_nstocks) MENU_SET_WARNING(MENU_WARN_NOT_WORKING, "No films in ML/FILM.");
     if (se_done || se_failed) MENU_SET_RINFO("%d done, %d failed", se_done, se_failed);
+}
+
+static MENU_SELECT_FUNC(se_bench_select)
+{
+    if (se_busy || se_q_count()) { NotifyBox(2000, "Soup: busy, try later"); return; }
+    if (!se_nstocks) { NotifyBox(2000, "Soup: no films in ML/FILM"); return; }
+    se_busy = 1;
+    task_create("soup_bench", 0x1c, 0x8000, se_bench_task, 0);
+}
+
+static MENU_UPDATE_FUNC(se_bench_update)
+{
+    if (se_busy && se_bench_mode) MENU_SET_VALUE("%d/5 %d%%", se_bench_mode, se_pct);
 }
 
 static MENU_UPDATE_FUNC(se_rescan_update)
@@ -926,6 +996,14 @@ static struct menu_entry se_menu[] =
                 .update     = se_rescan_update,
                 .icon_type  = IT_ACTION,
                 .help       = "Read ML/FILM again after changing the files on the card.",
+            },
+            {
+                .name       = "Benchmark",
+                .select     = se_bench_select,
+                .update     = se_bench_update,
+                .icon_type  = IT_ACTION,
+                .help       = "Five half-size develops of the last shot with stages switched off.",
+                .help2      = "About four minutes; writes nothing but ML/LOGS/SOUPENG.LOG.",
             },
             MENU_EOL,
         },
