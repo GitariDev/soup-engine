@@ -194,14 +194,21 @@ void se_progress_hook(void *ctx, const char *stage, int pct)
  * The decoder's window lives in the arena, which is cached, and Magic
  * Lantern's FIO_ReadFile will not read into cached memory above 8 KB (it
  * copies through a temporary and complains on the console each time).
- * So the reads land in a small uncached bounce buffer and are copied.
+ * So the card is read into an uncached window and the decoder's 8 KB
+ * requests are served out of it. The window is 256 KB, not the 8 KB the
+ * decoder asks for: served piecewise straight off the card, a frame
+ * cost about 250 FIO calls and two and a half seconds more than it had
+ * when the preview was held whole. Eight calls a frame costs nothing
+ * measurable.
  */
-#define SE_BOUNCE (16 * 1024)
+#define SE_BOUNCE (256 * 1024)
 
 typedef struct {
     FILE    *f;
-    uint8_t *bounce;        /* fio_malloc'd                              */
+    uint8_t *bounce;        /* fio_malloc'd, SE_BOUNCE                   */
     uint32_t base;          /* where the JPEG starts in the file         */
+    uint32_t total;         /* the JPEG's length                         */
+    uint32_t wbase, wlen;   /* what the window holds, JPEG-relative      */
 } se_pvrd;
 
 static int pv_read(void *ctx, uint32_t off, void *dst, uint32_t n)
@@ -210,9 +217,17 @@ static int pv_read(void *ctx, uint32_t off, void *dst, uint32_t n)
     uint8_t *d = (uint8_t *)dst;
     if (ml_shutdown_requested) return -1;
     while (n) {
-        uint32_t k = n < SE_BOUNCE ? n : SE_BOUNCE;
-        if (read_at(r->f, r->base + off, r->bounce, k) != 0) return -1;
-        memcpy(d, r->bounce, k);
+        uint32_t k;
+        if (off < r->wbase || off >= r->wbase + r->wlen) {
+            uint32_t want = SE_BOUNCE;
+            if (off >= r->total) return -1;
+            if (off + want > r->total) want = r->total - off;
+            if (read_at(r->f, r->base + off, r->bounce, want) != 0) return -1;
+            r->wbase = off; r->wlen = want;
+        }
+        k = r->wbase + r->wlen - off;
+        if (k > n) k = n;
+        memcpy(d, r->bounce + (off - r->wbase), k);
         d += k; off += k; n -= k;
     }
     return 0;
@@ -221,10 +236,9 @@ static int pv_read(void *ctx, uint32_t off, void *dst, uint32_t n)
 /*
  * Develop one frame from the preview Canon embedded in it.
  *
- * Memory: the header window, the read bounce and the output staging
+ * Memory: the header window, the read window and the output staging
  * buffer come from fio_malloc, uncacheable, because the card reads and
- * writes them by DMA -- about 530 KB together, whatever the preview's
- * size. The arena -- the decoder's MCU rows, the look's delay line, the
+ * writes them by DMA -- 768 KB together, whatever the preview's size. The arena -- the decoder's MCU rows, the look's delay line, the
  * encoder and its strip -- is ordinary cacheable memory, because the
  * processor works in it and uncached memory would make every access a
  * bus cycle. The camera measured the arena's peak at 511 KB for a
@@ -275,7 +289,7 @@ se_err se_develop_preview(const char *cr2_path, const char *out_path,
     }
 
     /* --- the preview is read as the decoder goes; just the bounce now -- */
-    rd.f = in; rd.base = poff;
+    rd.f = in; rd.base = poff; rd.total = plen;
     rd.bounce = fio_malloc(SE_BOUNCE);
     if (!rd.bounce) { rc = SE_E_NOMEM; se_logf("no memory for the read bounce"); goto done; }
     t2 = get_ms_clock();
