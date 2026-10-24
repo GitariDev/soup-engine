@@ -57,14 +57,17 @@ static int       se_nstocks;
 static int       se_film_dir_missing;
 
 /*
- * Remembered across power cycles by Magic Lantern's config system. By
- * index for now; the 5D build stores the NAME, because the list is
- * whatever is in ML/FILM and an index silently changes meaning when a
- * film is added. Worth doing the same here once there is a string config
- * to do it with.
+ * Remembered across power cycles by Magic Lantern's config system.
+ *
+ * The film is remembered by NAME, as the 5D does it: the list is whatever
+ * is in ML/FILM, and a position in it silently changes meaning the moment
+ * a film is added or removed. Magic Lantern's config holds integers, so
+ * what it holds is a hash of the name; at boot the list is searched for
+ * the film that hashes to it. The index is the live selection and is not
+ * saved.
  */
-static CONFIG_INT("soupeng.stock",  se_stock_index, 0);
-static CONFIG_INT("soupeng.source", se_source,      0);   /* 0 JPEG, 1 RAW */
+static int se_stock_index;
+static CONFIG_INT("soupeng.film",   se_stock_id,    0);   /* FNV-1a of the name */
 static CONFIG_INT("soupeng.size",   se_size,        0);   /* 0 half, 1 full, 2 quarter */
 
 /* The numbering is the order the choices were added in, so a saved
@@ -76,18 +79,6 @@ static CONFIG_INT("soupeng.auto",   se_auto,        1);   /* develop every shot 
 static void se_menu_film_max(void);       /* defined below the menu table  */
 
 static volatile int se_busy;              /* the worker is developing     */
-
-/*
- * The benchmark: the same develop with stages switched off, so the log
- * says where the time goes ON THE CAMERA rather than on the desktop,
- * where the proportions are not the same. 0 is the normal develop.
- *   1  decode only; the look and the encoder never see a row
- *   2  decode + look, with halation and grain off
- *   3  decode + look
- *   4  decode + look + encode, the normal path
- *   5  as 4, with the preview copied into cached memory first
- */
-static int se_bench_mode;
 static char         se_status[64];        /* what the last develop did     */
 static int          se_done, se_failed;   /* this session                  */
 
@@ -309,6 +300,27 @@ static void se_scan_stocks(void)
     se_logf("%d films in %s", se_nstocks, dir);
 }
 
+/*
+ * The remembered film. FNV-1a of its name is what the config holds; the
+ * list is searched for it at boot and after a rescan, and the first film
+ * is the fallback when nothing matches -- a film that was deleted, or a
+ * fresh card.
+ */
+static uint32_t se_name_id(const char *n)
+{
+    uint32_t h = FNV_INIT;
+    while (*n) { h ^= (uint8_t)*n++; h *= 16777619u; }
+    return h;
+}
+
+static void se_select_remembered(void)
+{
+    int i;
+    se_stock_index = 0;
+    for (i = 0; i < se_nstocks; i++)
+        if ((int)se_name_id(se_stocks[i].name) == se_stock_id) { se_stock_index = i; break; }
+}
+
 /* ------------------------------------------------------- the newest raw */
 
 /*
@@ -428,7 +440,6 @@ static int look_emit(void *ctx, const uint8_t *row, int width)
 {
     look_ctx *L = (look_ctx *)ctx;
     L->hash = se_hash_bytes(L->hash, row, width * 3);
-    if (se_bench_mode == 2 || se_bench_mode == 3) return 0;   /* no encoder */
     if (se_jpeg_write_rows(L->enc, row, 1) != SE_OK) { L->err = 1; return -1; }
     return 0;
 }
@@ -439,7 +450,6 @@ static int look_rows(void *ctx, const uint8_t *rgb, int nrows, int width)
     /* The one place to stop a frame in flight: once a row batch, which
      * is a few milliseconds. The partial file is removed by the caller. */
     if (ml_shutdown_requested) { L->aborted = 1; L->err = 1; return -1; }
-    if (se_bench_mode == 1) return 0;                          /* decode only */
     if (width != L->ow) {
         if (!L->err) se_logf("decoder gave %d columns, expected %d", width, L->ow);
         L->err = 1; return -1;
@@ -506,7 +516,6 @@ static se_err se_develop_preview(const char *cr2_path, const char *out_path,
     se_jpeg *enc;
     uint32_t poff = 0, plen = 0, got;
     int pw, ph, t0, t1, t2, t3;
-    int pv_cached = 0;
     se_err rc;
 
     memset(&out, 0, sizeof out);
@@ -544,20 +553,12 @@ static se_err se_develop_preview(const char *cr2_path, const char *out_path,
     }
     if (read_at(in, poff, pv, plen) != 0) { rc = SE_E_IO; se_logf("preview read failed"); goto done; }
     FIO_CloseFile(in); in = 0;
-    if (se_bench_mode == 5) {
-        /* the decoder reads the entropy-coded bytes one at a time, and
-         * fio_malloc's memory is uncached: is that where the time goes? */
-        uint8_t *c = __mem_malloc(plen, MEM_TEMPORARY, __FILE__, __LINE__);
-        if (c) { memcpy(c, pv, plen); fio_free(pv); pv = c; pv_cached = 1; }
-        else se_logf("bench: no cached memory for the preview copy");
-    }
     t2 = get_ms_clock();
 
     /* --- the look and the working memory ------------------------------- */
     se_jpeg_scaled_size(ji.width, ji.height, scale, &R->ow, &R->oh);
     R->scale = scale;
     se_look_from_stock(st, scale, &lk);
-    if (se_bench_mode == 2) { lk.hal_amount = 0; lk.grain = 0; }
     {
         int r0 = lk.hal_radius, a0 = lk.hal_amount;
         /* Same budget as tools/previewcheck.c, or the two grade differently
@@ -623,108 +624,9 @@ done:
     if (in) FIO_CloseFile(in);
     if (out.buf) fio_free(out.buf);
     if (amem) free(amem);
-    if (pv) { if (pv_cached) free(pv); else fio_free(pv); }
+    if (pv) fio_free(pv);
     if (hdr) fio_free(hdr);
     return rc;
-}
-
-/*
- * How fast is this processor, and is its cache doing anything?
- *
- * The five-way split said every stage of the develop is three to five
- * times slower than the core should manage, uniformly -- which is not
- * what a slow algorithm looks like, it is what a slow processor or a
- * cache that is not being used looks like. These two loops tell them
- * apart. The first touches no memory at all: its time is the clock.
- * The second walks a 4 KB block, which fits the data cache many times
- * over, so its time is the cost of a cached load if the block is
- * cached and of a bus cycle if it is not; it runs over three kinds of
- * memory the develop uses.
- */
-#define SE_CPU_ITERS   (20 * 1000 * 1000)
-#define SE_MEM_BLOCK   4096
-#define SE_MEM_PASSES  2000
-
-static volatile uint32_t se_bench_sink;
-
-static int se_bench_cpu(void)
-{
-    uint32_t a = 1, b = 2, c = 3;
-    int i, t0 = get_ms_clock();
-    for (i = 0; i < SE_CPU_ITERS; i++) {
-        a = a * 3 + b;
-        b ^= a >> 3;
-        c += b;
-    }
-    se_bench_sink = a + b + c;
-    return get_ms_clock() - t0;
-}
-
-static int se_bench_mem(const uint8_t *block)
-{
-    uint32_t s = 0;
-    int p, i, t0 = get_ms_clock();
-    for (p = 0; p < SE_MEM_PASSES; p++)
-        for (i = 0; i < SE_MEM_BLOCK; i += 4)
-            s += *(const volatile uint32_t *)(block + i);
-    se_bench_sink = s;
-    return get_ms_clock() - t0;
-}
-
-static uint8_t se_bench_static[SE_MEM_BLOCK];
-
-static void se_bench_machine(void)
-{
-    uint8_t *arena = __mem_malloc(SE_MEM_BLOCK, MEM_TEMPORARY, __FILE__, __LINE__);
-    uint8_t *dma   = fio_malloc(SE_MEM_BLOCK);
-    int cpu = se_bench_cpu();
-    se_logf("bench cpu: %d M loop iterations in %d ms", SE_CPU_ITERS / 1000000, cpu);
-    se_logf("bench 4KB x %d reads: static %d ms, arena %d ms, fio %d ms",
-            SE_MEM_PASSES,
-            se_bench_mem(se_bench_static),
-            arena ? se_bench_mem(arena) : -1,
-            dma   ? se_bench_mem(dma)   : -1);
-    se_logf("bench addresses: code %x, static %x, arena %x, fio %x",
-            (unsigned)(uintptr_t)&se_bench_cpu, (unsigned)(uintptr_t)se_bench_static,
-            (unsigned)(uintptr_t)arena, (unsigned)(uintptr_t)dma);
-    if (arena) free(arena);
-    if (dma) fio_free(dma);
-    se_log_flush();
-}
-
-/* The benchmark task: the machine, then five develops of the newest raw
- * at half size, the output thrown away, one line of the log each. About
- * four minutes. */
-static void se_bench_task(void *arg)
-{
-    se_bench_machine();
-    char cr2[FIO_MAX_PATH_LENGTH];
-    const char *names[] = { "", "decode", "decode+look, no halation/grain",
-                            "decode+look", "decode+look+encode",
-                            "decode+look+encode, preview cached" };
-    int mode;
-
-    if (se_newest_cr2(cr2, sizeof cr2) != 0) { se_logf("bench: no CR2"); goto out; }
-    if (se_stock_index < 0 || se_stock_index >= se_nstocks) se_stock_index = 0;
-    se_logf("bench: %s + %s, half size", cr2, se_stocks[se_stock_index].name);
-    for (mode = 1; mode <= 5 && !ml_shutdown_requested; mode++) {
-        se_result R;
-        se_err rc;
-        se_bench_mode = mode;
-        se_stage = names[mode]; se_pct = 0;
-        rc = se_develop_preview(cr2, "ML/LOGS/BENCH.TMP", &se_stocks[se_stock_index], 2, &R);
-        FIO_RemoveFile("ML/LOGS/BENCH.TMP");
-        if (rc == SE_OK)
-            se_logf("bench %d %s: stream %d ms, hash %08x", mode, names[mode], R.ms_stream, R.hash);
-        else
-            se_logf("bench %d %s: failed, %s", mode, names[mode], se_strerror(rc));
-        se_log_flush();     /* each line as it comes: a power-off keeps the rest */
-    }
-    se_bench_mode = 0;
-    if (!ml_shutdown_requested) NotifyBox(3000, "Soup: benchmark done, see SOUPENG.LOG");
-out:
-    se_log_flush();
-    se_busy = 0;
 }
 
 /* ------------------------------------------------------------ the queue */
@@ -853,7 +755,6 @@ static void se_develop_job(se_job *j)
         se_logf("%s already developed", out);
         return;
     }
-    if (se_source) se_logf("RAW source is not on this body yet; developing from the preview");
 
     se_busy = 1;
     se_stage = "starting"; se_pct = 0;
@@ -908,8 +809,6 @@ static void se_worker_task(void *arg)
         if (pending && !held) { powersave_prohibit(); held = 1; }
         if (!pending && held) { powersave_permit();   held = 0; }
 
-        if (se_busy) { msleep(500); continue; }     /* the benchmark has the engine */
-
         if (pending) {
             se_job *j = &se_q[se_q_head % SE_QUEUE];
             if (j->ready > 0) {
@@ -938,6 +837,7 @@ static MENU_UPDATE_FUNC(se_film_update)
     }
     if (se_stock_index < 0 || se_stock_index >= se_nstocks)
         se_stock_index = 0;
+    se_stock_id = (int)se_name_id(se_stocks[se_stock_index].name);   /* what gets saved */
     MENU_SET_VALUE("%s", se_stocks[se_stock_index].name);
     MENU_SET_HELP("%s", se_stocks[se_stock_index].desc);
     MENU_SET_RINFO("%d/%d", se_stock_index + 1, se_nstocks);
@@ -975,19 +875,6 @@ static MENU_UPDATE_FUNC(se_auto_update)
     if (se_done || se_failed) MENU_SET_RINFO("%d done, %d failed", se_done, se_failed);
 }
 
-static MENU_SELECT_FUNC(se_bench_select)
-{
-    if (se_busy || se_q_count()) { NotifyBox(2000, "Soup: busy, try later"); return; }
-    if (!se_nstocks) { NotifyBox(2000, "Soup: no films in ML/FILM"); return; }
-    se_busy = 1;
-    task_create("soup_bench", 0x1c, 0x8000, se_bench_task, 0);
-}
-
-static MENU_UPDATE_FUNC(se_bench_update)
-{
-    if (se_busy && se_bench_mode) MENU_SET_VALUE("%d/5 %d%%", se_bench_mode, se_pct);
-}
-
 static MENU_UPDATE_FUNC(se_rescan_update)
 {
     MENU_SET_VALUE("%d found", se_nstocks);
@@ -997,6 +884,7 @@ static MENU_SELECT_FUNC(se_rescan_select)
 {
     if (se_busy) return;
     se_scan_stocks();
+    se_select_remembered();
     se_menu_film_max();
     se_log_flush();
 }
@@ -1056,27 +944,11 @@ static struct menu_entry se_menu[] =
                 .help2      = "Quarter is 1296x864 and quick: a frame to share, not to print.",
             },
             {
-                .name       = "Source",
-                .priv       = &se_source,
-                .max        = 1,
-                .choices    = CHOICES("JPEG", "RAW"),
-                .help       = "JPEG grades the preview DIGIC already made. Use this.",
-                .help2      = "RAW works from the sensor data: slower, some adjustments unavailable. Not yet on this body.",
-            },
-            {
                 .name       = "Rescan films",
                 .select     = se_rescan_select,
                 .update     = se_rescan_update,
                 .icon_type  = IT_ACTION,
                 .help       = "Read ML/FILM again after changing the files on the card.",
-            },
-            {
-                .name       = "Benchmark",
-                .select     = se_bench_select,
-                .update     = se_bench_update,
-                .icon_type  = IT_ACTION,
-                .help       = "Five half-size develops of the last shot with stages switched off.",
-                .help2      = "About four minutes; writes nothing but ML/LOGS/SOUPENG.LOG.",
             },
             MENU_EOL,
         },
@@ -1104,13 +976,14 @@ static unsigned int se_module_init(void)
         return 1;
     }
     se_scan_stocks();
+    se_select_remembered();
     se_menu_film_max();
 
     menu_add("Shoot", se_menu, COUNT(se_menu));
     task_create("soup_dev", 0x1c, 0x8000, se_worker_task, 0);
 
-    se_logf("engine format %d, %d films, source %s, size %s, auto %s; free: malloc %d KB, AllocateMemory %d KB",
-            SE_STOCK_VERSION, se_nstocks, se_source ? "RAW" : "JPEG",
+    se_logf("engine format %d, %d films, film %s, size %s, auto %s; free: malloc %d KB, AllocateMemory %d KB",
+            SE_STOCK_VERSION, se_nstocks, se_nstocks ? se_stocks[se_stock_index].name : "-",
             se_size_name(), se_auto ? "on" : "off",
             GetFreeMemForMalloc() >> 10, GetFreeMemForAllocateMemory() >> 10);
     se_log_flush();
@@ -1134,8 +1007,7 @@ MODULE_CBRS_START()
 MODULE_CBRS_END()
 
 MODULE_CONFIGS_START()
-    MODULE_CONFIG(se_stock_index)
-    MODULE_CONFIG(se_source)
+    MODULE_CONFIG(se_stock_id)
     MODULE_CONFIG(se_size)
     MODULE_CONFIG(se_auto)
 MODULE_CONFIGS_END()

@@ -8,7 +8,8 @@ simulator and the film stocks.
 | | |
 |:--|:--|
 | `engine/` | the look, the stock format, the CR2 reader, the JPEG codec. Freestanding C99, integer only on every per-pixel path, no libc. The same files build for the camera and for the desktop. |
-| `ml/payload/` | the camera side. `film.c` is the engine's life on the body: the picker, the watcher, the develop queue. `mlstub.S` is the 215 bytes that live inside Magic Lantern's program. |
+| `ml/payload/` | the 5D Classic's camera side. `film.c` is the engine's life on the body: the picker, the watcher, the develop queue. `mlstub.S` is the 215 bytes that live inside Magic Lantern's program. |
+| `ml/700d/` | the EOS 700D's camera side: an ordinary Magic Lantern module, `soupeng.mo`, built with their module build against a pinned checkout of their source. See below. |
 | `host/` | `filmdev`, the desktop driver. Develops frames, builds contact sheets, writes cards. |
 | `tools/` | the simulator, the cross-checks, the release script. |
 | `stocks/` | the thirteen films, as plain text. |
@@ -36,6 +37,32 @@ it, and you do not need it to use the card files in `../card`.
 against a mock of Canon's API and compares what the simulated camera
 writes against a desktop reference, byte for byte. That equality is why
 the look lives in one shared file rather than being written twice.
+
+## The EOS 700D module
+
+The 700D's Magic Lantern port has a module loader, so there is no
+patching: `ml/700d/soupeng.c` is a normal module that asks Magic Lantern
+for files, memory, tasks and the menu, and `ml/700d/Makefile` borrows
+their module build. It needs two things outside this repository:
+
+| | |
+|:--|:--|
+| `vendor/magiclantern_simplified/` | their source, checked out at the commit the camera's `autoexec.bin` was built from (`ed3e7c0df` for the 2025-06-20 700D build) plus two small fixes to their build scripts for current Python and for a module living outside their tree. `vendor/` is ignored by git. |
+| Arm's GNU toolchain | `arm-none-eabi-gcc` with newlib's headers, which Homebrew's package lacks. The Makefile looks for it at `~/.local/opt/arm-gnu-toolchain-15.3.rel2`; set `ARM_TOOLCHAIN` otherwise. It must live at a path without spaces, because their Makefile does not quote the compiler. |
+
+```sh
+make card-700d   # soupeng.mo, the films and the enable file, in out/card-700d/
+```
+
+Copy the contents of `out/card-700d` onto a card that already has
+Magic Lantern's 700D build on it, eject it, and switch the camera on
+with the card in. Soup Engine is under Shoot in Magic Lantern's menu.
+
+What the camera writes is checked against the desktop the same way as
+the 5D's: `tools/previewcheck <raw> <stock> <scale>` prints the hash
+the module logs in `ML/LOGS/SOUPENG.LOG`, and the files have matched
+byte for byte on every frame so far. The 700D writes `FLM_1234.JPG`
+rather than `IMG_1234.FLM.JPG`, because its filesystem is 8.3.
 
 ## AUTOEXEC.BIN
 

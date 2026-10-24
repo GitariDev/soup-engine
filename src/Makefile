@@ -7,7 +7,7 @@
 # which says nothing about a missing sample.
 SAMPLES := $(wildcard samples/*.CR2) $(wildcard samples/*/*.CR2)
 
-.PHONY: all test test-full test-camera simtest asan arm clean contact payload
+.PHONY: all test test-full test-camera simtest asan arm clean contact payload card-700d
 
 all:
 	@$(MAKE) -s -C host
@@ -106,6 +106,21 @@ out/previewcheck: $(PREVIEW_SRC) $(wildcard engine/*.h)
 payload:
 	@$(MAKE) -s -C ml/payload
 	@python3 tools/patch-film.py
+
+# The EOS 700D build: a Magic Lantern module, and everything the card
+# needs beside it, in out/card-700d/. Copy that folder's contents onto a
+# card that already has Magic Lantern's 700D build on it. Needs the
+# pinned Magic Lantern checkout and the Arm toolchain described in
+# ml/700d/Makefile.
+card-700d:
+	@$(MAKE) -s -C ml/700d
+	@rm -rf out/card-700d
+	@mkdir -p out/card-700d/ML/modules out/card-700d/ML/FILM out/card-700d/ML/SETTINGS
+	@cp ml/700d/build/soupeng.mo out/card-700d/ML/modules/
+	@cp stocks/*.fs out/card-700d/ML/FILM/
+	@touch out/card-700d/ML/SETTINGS/soupeng.en
+	@echo "out/card-700d: $$(ls out/card-700d/ML/FILM | wc -l | tr -d ' ') films, soupeng.mo $$(stat -f%z ml/700d/build/soupeng.mo 2>/dev/null || stat -c%s ml/700d/build/soupeng.mo) bytes"
+	@echo "copy the contents of out/card-700d onto the card; eject before removing it"
 
 asan:
 	@$(MAKE) -s -C host asan

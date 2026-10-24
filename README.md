@@ -57,11 +57,29 @@ All thirteen, one frame, straight off the card.
 
 <br>
 
-## 📦 Installing
+## 📷 Also: the EOS 700D / Rebel T5i / Kiss X7i
+
+There is a second camera build, for the **EOS 700D** (firmware 1.1.5),
+as a Magic Lantern module rather than a patched binary. Install Magic
+Lantern's 700D build first, then copy `ML/modules/soupeng.mo`, the
+`ML/FILM` folder and `ML/SETTINGS/soupeng.en` from a `make card-700d`
+onto the card (see [`src/README.md`](src/README.md)). Soup Engine then
+lives under **Shoot** in Magic Lantern's menu: pick a film, and every
+shot gets `FLM_1234.JPG` beside its raw. Quarter size takes about 11
+seconds a frame, half about 40, full about three minutes; frames queue
+while you keep shooting, and the camera will not switch itself off with
+frames pending.
+
+Always eject the card from the computer before pulling it, or the
+camera may not start with it until it has been ejected cleanly again.
+
+<br>
+
+## 📦 Installing on the 5D Classic
 
 You need a **Canon EOS 5D Classic** (the original 2005 one, firmware
-1.1.1) and a CompactFlash card. It will not work on any other Canon:
-the camera-side code is built for this body's firmware.
+1.1.1) and a CompactFlash card. The 5D build will not work on any other
+Canon: that camera-side code is built for this body's firmware.
 
 <br>
 
