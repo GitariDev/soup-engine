@@ -647,6 +647,7 @@ static void se_bench_task(void *arg)
             se_logf("bench %d %s: stream %d ms, hash %08x", mode, names[mode], R.ms_stream, R.hash);
         else
             se_logf("bench %d %s: failed, %s", mode, names[mode], se_strerror(rc));
+        se_log_flush();     /* each line as it comes: a power-off keeps the rest */
     }
     se_bench_mode = 0;
     if (!ml_shutdown_requested) NotifyBox(3000, "Soup: benchmark done, see SOUPENG.LOG");
