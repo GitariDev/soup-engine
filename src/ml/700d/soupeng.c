@@ -313,7 +313,7 @@ static MENU_SELECT_FUNC(se_develop_select)
         return;
     }
     if (se_q_push(cr2, 1))
-        NotifyBox(1000, "Soup: queued %s", cr2 + strlen(get_dcim_dir()) + 1);
+        NotifyBox(1000, "Soup: %s %s", se_busy ? "queued" : "developing", cr2 + strlen(get_dcim_dir()) + 1);
 }
 
 static MENU_UPDATE_FUNC(se_auto_update)
@@ -427,6 +427,7 @@ static unsigned int se_module_init(void)
     se_menu_film_max();
 
     menu_add("Shoot", se_menu, COUNT(se_menu));
+    if (se_nstocks) se_resume_cut();
     task_create("soup_dev", 0x1c, 0x8000, se_worker_task, 0);
 
     se_logf("engine format %d, %d films, film %s, size %s, auto %s; free: malloc %d KB, AllocateMemory %d KB",

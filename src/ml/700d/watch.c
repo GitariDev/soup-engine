@@ -40,6 +40,17 @@ int se_q_count(void) { return se_q_tail - se_q_head; }
 se_job *se_q_push(const char *path, int force)
 {
     se_job *j;
+    int i;
+    /* Already waiting? Then this is the same request twice -- "Develop
+     * last shot" pressed while the watcher had just queued that shot --
+     * and a second job would develop the frame a second time. */
+    for (i = se_q_head; i < se_q_tail; i++) {
+        j = &se_q[i % SE_QUEUE];
+        if (j->ready >= 0 && strcmp(j->path, path) == 0) {
+            if (force) { j->force = 1; j->ready = 1; }
+            return j;
+        }
+    }
     if (se_q_count() >= SE_QUEUE) {
         se_logf("queue full, dropping %s", path);
         return 0;
@@ -51,6 +62,40 @@ se_job *se_q_push(const char *path, int force)
     j->ready = force;
     se_q_tail++;
     return j;
+}
+
+/*
+ * A frame cut off by the power -- battery out, card pulled -- leaves its
+ * FLM_ file at zero bytes, because the output goes out in 256 KB pieces
+ * and the log is flushed after the job. A clean shutdown removes the
+ * partial file; a cut cannot. So at power-on the shooting folder is
+ * walked once and any raw whose output is empty is queued again.
+ */
+void se_resume_cut(void)
+{
+    const char *dir = get_dcim_dir();
+    struct fio_file *file = alloc_fio_file();
+    struct fio_dirent *d;
+    char in[FIO_MAX_PATH_LENGTH], out[FIO_MAX_PATH_LENGTH];
+    uint32_t sz;
+    int n = 0;
+
+    if (!file) return;
+    d = FIO_FindFirstEx(dir, file);
+    if (IS_ERROR(d)) { free(file); return; }
+    do {
+        struct file_info fi = convert_fio_file_info(file);
+        if (!fi.name[0] || (fi.mode & ATTR_DIRECTORY)) continue;
+        if (!ends_with_ci(fi.name, ".CR2")) continue;
+        snprintf(in, sizeof in, "%s/%s", dir, fi.name);
+        se_out_name(in, out, sizeof out);
+        if (FIO_GetFileSize(out, &sz) == 0 && sz == 0 && se_q_push(in, 1)) {
+            se_logf("resuming %s: its output was cut off", fi.name);
+            n++;
+        }
+    } while (FIO_FindNextEx(d, file) == 0 && n < SE_QUEUE);
+    FIO_FindClose(d);
+    free(file);
 }
 
 /* ---------------------------------------------------------- the watcher */

@@ -267,11 +267,19 @@ int main(int argc, char **argv)
 
     printf("sim700d: card=%s short_reads=%s\n", g_card, g_short_reads ? "on" : "off");
 
-    /* 1. init */
+    /* 1. init -- with a frame the power cut off last time: its raw is
+     * there and its output is empty */
+    { char cmd[2200], e[1100];
+      snprintf(cmd, sizeof cmd, "cp '%s' '%s/DCIM/100CANON/IMG_0100.CR2'", sample, g_card); system(cmd);
+      snprintf(e, sizeof e, "%s/DCIM/100CANON/FLM_0100.JPG", g_card); fclose(fopen(e, "wb")); }
     g_shoot_card.file_number = 100; g_shoot_card.folder_number = 100;
     se_size = 2;                                           /* quarter, as the reference */
     check(sim_module_init() == 0, "module init");
     check(se_nstocks == 13, "13 films found (%d)", se_nstocks);
+    check(se_q_count() == 1, "the cut-off frame was queued at power-on (%d)", se_q_count());
+    wait_idle(120);
+    { char b[1024]; snprintf(b, sizeof b, "%s/DCIM/100CANON/FLM_0100.JPG", g_card);
+      check(same_file(b, expect), "and developed, byte-identical"); }
     tick(1);                                               /* the baseline tick */
 
     /* 2. one shot, auto on: developed, byte for byte */
@@ -345,6 +353,11 @@ int main(int argc, char **argv)
       for (k = 0; k < se_stock_index + 2; k++) sim_cbr_key(MODULE_KEY_PRESS_UP);  /* the DEVELOP row */
       sim_cbr_key(MODULE_KEY_PRESS_SET);
       check(se_q_count() == 1 || se_busy, "DEVELOP LAST SHOT queues the newest raw");
+      { int before = se_q_tail;
+        sim_cbr_key(MODULE_KEY_PRESS_SET);
+        for (k = 0; k < se_stock_index + 2; k++) sim_cbr_key(MODULE_KEY_PRESS_UP);
+        sim_cbr_key(MODULE_KEY_PRESS_SET);
+        check(se_q_tail == before, "pressing it again does not queue the same frame twice"); }
       wait_idle(120);
       g_menu_shown = 1;
       check(sim_cbr_key(MODULE_KEY_PRESS_SET) == 1, "SET is left alone while Magic Lantern's menu is up");

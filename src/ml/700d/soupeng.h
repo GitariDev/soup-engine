@@ -88,7 +88,8 @@ extern se_job       se_q[SE_QUEUE];
 extern volatile int se_q_head, se_q_tail;  /* indices, never wrap           */
 
 int     se_q_count(void);
-se_job *se_q_push(const char *path, int force);
+se_job *se_q_push(const char *path, int force);     /* once per path */
+void    se_resume_cut(void);                        /* at power-on   */
 
 unsigned int se_watch_cbr(unsigned int ctx);     /* once a second         */
 void         se_worker_task(void *arg);          /* for the whole session */
