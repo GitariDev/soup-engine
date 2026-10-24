@@ -36,6 +36,7 @@
 #include <notify_box.h>
 #include <lens.h>
 #include <fileprefix.h>
+#include <powersave.h>
 
 #include "se.h"
 #include "stock.h"
@@ -762,11 +763,25 @@ static void se_develop_job(se_job *j)
  * Lives for the whole session. Polls rather than blocks on a semaphore:
  * half a second of latency on a job that takes forty is nothing, and it
  * keeps the queue's locking as simple as it is.
+ *
+ * Canon's auto power-off is held while there is work. A full-size frame
+ * takes three minutes and the default idle timer is one, so without this
+ * the camera would switch itself off mid-develop -- and shutdown, which
+ * is honoured within a row, would abandon the frame. Magic Lantern's
+ * file manager and raw recorder hold it the same way. Only the worker
+ * calls these two, so they always pair.
  */
 static void se_worker_task(void *arg)
 {
+    int held = 0;
+
     while (!ml_shutdown_requested) {
-        if (se_q_count() > 0) {
+        int pending = se_q_count() > 0;
+
+        if (pending && !held) { powersave_prohibit(); held = 1; }
+        if (!pending && held) { powersave_permit();   held = 0; }
+
+        if (pending) {
             se_job *j = &se_q[se_q_head % SE_QUEUE];
             if (j->ready > 0) {
                 se_develop_job(j);
@@ -780,6 +795,7 @@ static void se_worker_task(void *arg)
         }
         msleep(500);
     }
+    if (held) powersave_permit();
 }
 
 /* ---------------------------------------------------------------- menu */
