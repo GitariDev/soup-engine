@@ -350,8 +350,10 @@ static void fdct(int32_t *d)
         tmp10 = tmp0 + tmp3; tmp13 = tmp0 - tmp3;
         tmp11 = tmp1 + tmp2; tmp12 = tmp1 - tmp2;
 
-        p[0] = (tmp10 + tmp11) << PASS1_BITS;
-        p[4] = (tmp10 - tmp11) << PASS1_BITS;
+            /* multiplied, not shifted: a left shift of a negative value is
+         * undefined in C, and the sanitiser said so twice a frame */
+        p[0] = (tmp10 + tmp11) * (1 << PASS1_BITS);
+        p[4] = (tmp10 - tmp11) * (1 << PASS1_BITS);
 
         z1 = (tmp12 + tmp13) * FIX_0_541196100;
         p[2] = DESCALE(z1 + tmp13 * FIX_0_765366865, CONST_BITS - PASS1_BITS);

@@ -79,6 +79,13 @@ frames pending.
 Always eject the card from the computer before pulling it, or the
 camera may not start with it until it has been ejected cleanly again.
 
+The 5D's `SOURCE: RAW` is not offered on the 700D. Developing from the
+sensor data needs the whole decoded frame, 37 MB on this body, and
+Magic Lantern cannot hand that out in one piece there; the 5D's answer
+was to spool it through the card at minutes a frame, which is not worth
+having. The JPEG source, which is the default on both cameras, is the
+path every frame goes through.
+
 <br>
 
 ## 📦 Installing on the 5D Classic

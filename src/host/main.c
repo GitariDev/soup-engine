@@ -2357,6 +2357,7 @@ static void usage(void)
         "  --xmp <file.xmp>  apply a Lightroom sidecar in full 3D (software path)\n"
         "  --stock <name>    apply a film stock -- the path the camera will use\n"
         "  --ev <f>          exposure push/pull in stops\n"
+        "  --420             encode 4:2:0, as the 700D does\n"
         "  --quality <1-100> JPEG quality (default 92)\n"
         "  --no-dither       disable the 16->8 ordered dither\n"
         "  --half            half size by Bayer-quad binning (no demosaic at all)\n"
@@ -2442,6 +2443,7 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--xmp") == 0 && i + 1 < argc)     xmp_path = argv[++i];
         else if (strcmp(argv[i], "--stock") == 0 && i + 1 < argc)   stock_path = argv[++i];
         else if (strcmp(argv[i], "--ev") == 0 && i + 1 < argc)      opts.exposure_ev = (float)atof(argv[++i]);
+        else if (strcmp(argv[i], "--420") == 0)                     opts.chroma420 = 1;
         else if (strcmp(argv[i], "--quality") == 0 && i + 1 < argc) opts.jpeg_quality = atoi(argv[++i]);
         else if (strcmp(argv[i], "--no-dither") == 0)               opts.dither = 0;
         else if (strcmp(argv[i], "--scale") == 0 && i + 1 < argc)   opts.scale = atoi(argv[++i]);
