@@ -143,7 +143,7 @@ static void se_develop_job(se_job *j)
 
     se_busy = 1;
     se_stage = "starting"; se_pct = 0;
-    se_waiting = se_q_count() - 1;
+    se_waiting = se_q_count() > 1 ? se_q_count() - 1 : 0;
     se_logf("develop %s + %s, %s size, %d waiting, %d KB free", j->path, st->name,
             se_size_name(), se_waiting, GetFreeMemForMalloc() >> 10);
 

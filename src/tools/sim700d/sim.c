@@ -47,7 +47,7 @@
 /* what the module exports and the fakes above reach back for */
 extern unsigned (*sim_module_init)(void), (*sim_module_deinit)(void);
 extern unsigned (*sim_cbr_clock)(unsigned), (*sim_cbr_key)(unsigned);
-extern int se_nstocks, se_stock_index, se_stock_id, se_auto, se_size;
+extern int se_nstocks, se_stock_index, se_stock_id, se_auto, se_size, se_waiting;
 extern volatile int se_busy, se_q_head, se_q_tail;
 extern int se_q_count(void);
 extern uint32_t se_name_id(const char *);
@@ -294,6 +294,11 @@ int main(int argc, char **argv)
     tick(1);
     check(se_q_count() == 3, "burst of three queued (%d)", se_q_count());
     tick(2);
+    /* a desktop frame is a fifth of a second, so sample the count the
+     * whole time the burst drains and keep the most it showed */
+    { int maxw = 0, t = 0;
+      while ((se_busy || se_q_count()) && t < 3000) { if (se_waiting > maxw) maxw = se_waiting; usleep(1000); t++; }
+      check(maxw == 2, "the first frame showed two waiting behind it (most seen: %d)", maxw); }
     wait_idle(300);
     check(exists("DCIM/100CANON/FLM_0102.JPG") && exists("DCIM/100CANON/FLM_0103.JPG") &&
           exists("DCIM/100CANON/FLM_0104.JPG"), "all three developed");

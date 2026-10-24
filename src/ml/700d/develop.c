@@ -166,6 +166,9 @@ static int look_rows(void *ctx, const uint8_t *rgb, int nrows, int width)
 
 void se_progress_hook(void *ctx, const char *stage, int pct)
 {
+    /* Read live, not once at the start of the frame: shots taken while
+     * this one develops are the ones the count is for. */
+    se_waiting = se_q_count() > 1 ? se_q_count() - 1 : 0;
     if (pct == se_pct && stage == se_stage) return;
     se_stage = stage; se_pct = pct;
     if (gui_menu_shown() || ml_shutdown_requested) return;
