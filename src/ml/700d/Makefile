@@ -16,7 +16,8 @@ ENGINE      = ../../engine
 
 ENGINE_SRC  = se.c wb.c cr2.c color.c debayer.c lut.c stock.c grade.c \
               jpeg_enc.c jpeg_dec.c pipeline.c look.c
-MODULE_OBJS = $(BUILD_DIR)/soupeng.o \
+MODULE_SRC  = soupeng.c develop.c watch.c screen.c
+MODULE_OBJS = $(addprefix $(BUILD_DIR)/, $(MODULE_SRC:.c=.o)) \
               $(addprefix $(BUILD_DIR)/, $(ENGINE_SRC:.c=.o))
 
 # -fno-fast-math: Magic Lantern builds everything with -ffast-math, and

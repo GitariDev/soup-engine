@@ -9,53 +9,21 @@
  * needs from the camera -- files, memory, tasks, the menu, the screen --
  * is asked of Magic Lantern rather than taken from the firmware.
  *
- * Stage 1 found the films in ML/FILM and offered them in the menu.
- * Stage 2 developed the newest raw on demand, and proved on the camera
- * that the bytes it writes are the bytes the desktop computes.
- * Stage 3, this: develop every shot as it is taken.
- *
- * How a shot is noticed. Magic Lantern defines "after shot" callbacks
- * for modules and this build never fires them, so the watcher polls:
- * once a second, from Magic Lantern's own shoot task, it reads Canon's
- * file counter. A new number is a new frame. The frame is queued once
- * Canon reports itself idle and the raw's size has stopped changing,
- * because the counter can move before the file is finished.
- *
- * One worker task drains the queue. It is started once, at init, and
- * loops until power-off; it does not touch the card once shutdown has
- * been requested, because a task holding the card open is a shutdown
- * that does not finish.
+ * This file is the films, the menu, the config and the module's
+ * lifetime. develop.c is one frame, watch.c is the queue and the tasks
+ * around it, screen.c is the label and the picker; soupeng.h is what
+ * they share. tools/sim700d runs all four on the desktop against a mock
+ * of the camera, which is where the queue and the picker are tested.
  */
-#include <module.h>
-#include <dryos.h>
-#include <menu.h>
-#include <config.h>
-#include <bmp.h>
-#include <fio-ml.h>
-#include <console.h>
-#include <notify_box.h>
-#include <lens.h>
-#include <fileprefix.h>
-#include <powersave.h>
-#include <propvalues.h>     /* lv */
-#include <gui-common.h>     /* display_is_on, is_play_mode, redraw */
+#include "soupeng.h"
 
-#include "se.h"
-#include "stock.h"
-#include "cr2.h"
-#include "lut.h"
-#include "jpeg_dec.h"
-#include "jpeg_enc.h"
-#include "look.h"
-
-#define SE_MAX_STOCKS   32
 #define SE_STOCK_TEXT   8192      /* soup800.fs, the longest, is under 3 KB */
 
 /* ---------------------------------------------------------------- state */
 
-static se_stock *se_stocks;                       /* SE_MAX_STOCKS of them */
+se_stock *se_stocks;                       /* SE_MAX_STOCKS of them */
 static char      se_stock_file[SE_MAX_STOCKS][16];/* the 8.3 name on card */
-static int       se_nstocks;
+int       se_nstocks;
 static int       se_film_dir_missing;
 
 /*
@@ -68,25 +36,18 @@ static int       se_film_dir_missing;
  * the film that hashes to it. The index is the live selection and is not
  * saved.
  */
-static int se_stock_index;
-static CONFIG_INT("soupeng.film",   se_stock_id,    0);   /* FNV-1a of the name */
-static CONFIG_INT("soupeng.size",   se_size,        0);   /* 0 half, 1 full, 2 quarter */
+int se_stock_index;
+CONFIG_INT("soupeng.film",   se_stock_id,    0);   /* FNV-1a of the name */
+CONFIG_INT("soupeng.size",   se_size,        0);   /* 0 half, 1 full, 2 quarter */
 
 /* The numbering is the order the choices were added in, so a saved
  * config keeps meaning what it meant. */
-static int se_scale(void) { return se_size == 1 ? 1 : se_size == 2 ? 4 : 2; }
-static const char *se_size_name(void) { return se_size == 1 ? "full" : se_size == 2 ? "quarter" : "half"; }
-static CONFIG_INT("soupeng.auto",   se_auto,        1);   /* develop every shot */
+int se_scale(void) { return se_size == 1 ? 1 : se_size == 2 ? 4 : 2; }
+const char *se_size_name(void) { return se_size == 1 ? "full" : se_size == 2 ? "quarter" : "half"; }
+CONFIG_INT("soupeng.auto",   se_auto,        1);   /* develop every shot */
 
 static void se_menu_film_max(void);       /* defined below the menu table  */
-static void se_draw_label(void);          /* the screen: defined below the develop */
-static void se_pick_draw(int full);
-static void se_pick_close(int apply);
-static int  se_pick_open, se_pick_sel, se_pick_idle;
 
-static volatile int se_busy;              /* the worker is developing     */
-static char         se_status[64];        /* what the last develop did     */
-static int          se_done, se_failed;   /* this session                  */
 
 /* --------------------------------------------------------------- logging */
 /*
@@ -104,7 +65,7 @@ static int          se_done, se_failed;   /* this session                  */
 static char se_logbuf[SE_LOG_CAP];
 static int  se_loglen;
 
-static void se_logf(const char *fmt, ...)
+void se_logf(const char *fmt, ...)
 {
     char line[160];
     va_list ap;
@@ -125,7 +86,7 @@ static void se_logf(const char *fmt, ...)
     }
 }
 
-static void se_log_flush(void)
+void se_log_flush(void)
 {
     FILE *f;
     if (!se_loglen || ml_shutdown_requested) return;
@@ -145,7 +106,7 @@ static void se_log_hook(void *ctx, const char *msg)
 
 /* ---------------------------------------------------------------- utils */
 
-static int ends_with_ci(const char *n, const char *ext)
+int ends_with_ci(const char *n, const char *ext)
 {
     size_t l = strlen(n), e = strlen(ext);
     size_t i;
@@ -160,8 +121,7 @@ static int ends_with_ci(const char *n, const char *ext)
 }
 
 /* FNV-1a, the same hash tools/previewcheck.c prints. */
-#define FNV_INIT 2166136261u
-static uint32_t se_hash_bytes(uint32_t h, const void *p, int n)
+uint32_t se_hash_bytes(uint32_t h, const void *p, int n)
 {
     const uint8_t *b = (const uint8_t *)p;
     int i;
@@ -194,21 +154,8 @@ static int read_text(const char *path, char *buf, size_t cap, size_t *got)
     return 0;
 }
 
-/* Read exactly n bytes at off, in as many calls as the card wants. */
-static int read_at(FILE *f, uint32_t off, uint8_t *dst, uint32_t n)
-{
-    uint32_t done = 0;
-    if (FIO_SeekSkipFile(f, off, SEEK_SET) != (int64_t)off) return -1;
-    while (done < n) {
-        int got = FIO_ReadFile(f, dst + done, n - done);
-        if (got <= 0) return -1;
-        done += (uint32_t)got;
-    }
-    return 0;
-}
-
 /* Size of a file, or 0 if it does not exist. */
-static uint32_t file_size(const char *path)
+uint32_t file_size(const char *path)
 {
     uint32_t sz = 0;
     if (FIO_GetFileSize(path, &sz) != 0) return 0;
@@ -312,7 +259,7 @@ static void se_scan_stocks(void)
  * is the fallback when nothing matches -- a film that was deleted, or a
  * fresh card.
  */
-static uint32_t se_name_id(const char *n)
+uint32_t se_name_id(const char *n)
 {
     uint32_t h = FNV_INIT;
     while (*n) { h ^= (uint8_t)*n++; h *= 16777619u; }
@@ -325,689 +272,6 @@ static void se_select_remembered(void)
     se_stock_index = 0;
     for (i = 0; i < se_nstocks; i++)
         if ((int)se_name_id(se_stocks[i].name) == se_stock_id) { se_stock_index = i; break; }
-}
-
-/* ------------------------------------------------------- the newest raw */
-
-/*
- * The highest-numbered .CR2 in the shooting folder, for "Develop last
- * shot". The watcher does not use this: it knows the number of each new
- * frame from Canon's counter and never walks the directory.
- */
-static int se_newest_cr2(char *out, size_t cap)
-{
-    const char *dir = get_dcim_dir();
-    struct fio_file *file = alloc_fio_file();
-    struct fio_dirent *d;
-    char best[FIO_MAX_PATH_LENGTH];
-
-    best[0] = 0;
-    if (!file) return -1;
-    d = FIO_FindFirstEx(dir, file);
-    if (IS_ERROR(d)) { free(file); return -1; }
-    do {
-        struct file_info fi = convert_fio_file_info(file);
-        if (!fi.name[0] || (fi.mode & ATTR_DIRECTORY)) continue;
-        if (!ends_with_ci(fi.name, ".CR2")) continue;
-        if (strcmp(fi.name, best) > 0)
-            snprintf(best, sizeof best, "%s", fi.name);
-    } while (FIO_FindNextEx(d, file) == 0);
-    FIO_FindClose(d);
-    free(file);
-
-    if (!best[0]) return -1;
-    snprintf(out, cap, "%s/%s", dir, best);
-    return 0;
-}
-
-/*
- * The output name: FLM_1234.JPG in the raw's folder.
- *
- * The 5D writes IMG_1234.FLM.JPG, and so did the first build of this,
- * which the camera refused: Canon's filesystem is 8.3 and DryOS will not
- * create a name that is not. FLM_ keeps the number and sorts the films
- * together, after the raws.
- *
- * Built by hand, not with snprintf: the snprintf here is Canon's, and it
- * does not know %.*s. The build before that one asked it for exactly
- * that and tried to create a file called ".*s.FLM.JPG".
- */
-static void se_out_name(const char *cr2, char *out, size_t cap)
-{
-    size_t l = strlen(cr2);                 /* ".../IMG_1234.CR2" */
-    size_t dir = l;                         /* length including the '/' */
-    const char *digits;
-    while (dir > 0 && cr2[dir - 1] != '/') dir--;
-    digits = cr2 + l - 4;                   /* the four before ".CR2" */
-    if (digits - 4 >= cr2 + dir) digits -= 4; else digits = cr2 + dir;
-
-    if (dir + 13 >= cap) { out[0] = 0; return; }
-    memcpy(out, cr2, dir);
-    strcpy(out + dir, "FLM_");
-    memcpy(out + dir + 4, digits, 4);
-    strcpy(out + dir + 8, ".JPG");
-}
-
-/* --------------------------------------------------------- the develop */
-
-/*
- * The CR2 header. The IFD0 entries that locate the preview, the MakerNote
- * with the exposure data, and the start of the preview itself all sit in
- * the first 100 KB of every 700D frame seen so far; 256 KB is ample.
- */
-#define SE_HDR_BYTES  (256 * 1024)
-#define SE_OUTBUF     (256 * 1024)
-#define SE_ARENA      (1536 * 1024)
-
-typedef struct {
-    FILE    *f;
-    uint8_t *buf;          /* uncacheable, so FIO needs no cache sync   */
-    int      len;
-    int      bytes;
-    int      err;
-} se_out;
-
-static int out_flush(se_out *o)
-{
-    if (o->len) {
-        if (FIO_WriteFile(o->f, o->buf, (size_t)o->len) != o->len) o->err = 1;
-        o->len = 0;
-    }
-    return o->err ? -1 : 0;
-}
-
-static int out_sink(void *ctx, const uint8_t *d, size_t n)
-{
-    se_out *o = (se_out *)ctx;
-    while (n) {
-        size_t room = SE_OUTBUF - (size_t)o->len;
-        size_t k = n < room ? n : room;
-        memcpy(o->buf + o->len, d, k);
-        o->len += (int)k; o->bytes += (int)k; d += k; n -= k;
-        if (o->len == SE_OUTBUF && out_flush(o) != 0) return -1;
-    }
-    return 0;
-}
-
-typedef struct {
-    se_jpeg     *enc;
-    se_look_run *run;
-    int          ow;
-    uint32_t     hash;
-    int          err;
-    int          aborted;     /* power-off during the frame */
-} look_ctx;
-
-/* One finished row, on its way out of the look stage. The hash is taken
- * here, after the look, because with halation on rows leave `radius`
- * rows after they went in -- hashing the input would hash the wrong
- * pixels in the wrong order. tools/previewcheck.c hashes the same rows. */
-static int look_emit(void *ctx, const uint8_t *row, int width)
-{
-    look_ctx *L = (look_ctx *)ctx;
-    L->hash = se_hash_bytes(L->hash, row, width * 3);
-    if (se_jpeg_write_rows(L->enc, row, 1) != SE_OK) { L->err = 1; return -1; }
-    return 0;
-}
-
-static int look_rows(void *ctx, const uint8_t *rgb, int nrows, int width)
-{
-    look_ctx *L = (look_ctx *)ctx;
-    /* The one place to stop a frame in flight: once a row batch, which
-     * is a few milliseconds. The partial file is removed by the caller. */
-    if (ml_shutdown_requested) { L->aborted = 1; L->err = 1; return -1; }
-    if (width != L->ow) {
-        if (!L->err) se_logf("decoder gave %d columns, expected %d", width, L->ow);
-        L->err = 1; return -1;
-    }
-    if (se_look_rows(L->run, rgb, nrows, look_emit, L) != SE_OK) { L->err = 1; return -1; }
-    return 0;
-}
-
-/* Progress, drawn by the worker itself. Skipped while Magic Lantern's
- * menu is up: it owns the screen then and would paint over it. */
-static const char *se_stage = "";
-static int         se_pct;
-static int         se_waiting;        /* frames queued behind this one */
-
-static void se_progress_hook(void *ctx, const char *stage, int pct)
-{
-    if (pct == se_pct && stage == se_stage) return;
-    se_stage = stage; se_pct = pct;
-    if (gui_menu_shown() || ml_shutdown_requested) return;
-    if (pct % 5 == 0) {
-        if (se_waiting)
-            bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), 10, 440,
-                       "SOUP %s %s %d%%  +%d   ",
-                       se_stocks[se_stock_index].name, stage, pct, se_waiting);
-        else
-            bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), 10, 440,
-                       "SOUP %s %s %d%%      ",
-                       se_stocks[se_stock_index].name, stage, pct);
-    }
-}
-
-typedef struct {
-    int      ow, oh, scale;
-    int      bytes;
-    uint32_t hash;
-    int      ms_hdr, ms_read, ms_stream, ms_total;
-    size_t   arena_peak;
-    int      aborted;
-} se_result;
-
-/*
- * Develop one frame from the preview Canon embedded in it.
- *
- * Memory: four allocations. The header window, the preview and the
- * output staging buffer come from fio_malloc, uncacheable, because the
- * card reads and writes them by DMA. The arena -- the decoder's MCU rows,
- * the look's delay line, the encoder and its strip -- is ordinary
- * cacheable memory, because the processor works in it and uncached
- * memory would make every access a bus cycle. The camera measured the
- * arena's peak at 511 KB for a full-size frame.
- */
-static se_err se_develop_preview(const char *cr2_path, const char *out_path,
-                                 const se_stock *st, int scale, se_result *R)
-{
-    uint8_t *hdr = 0, *pv = 0, *amem = 0;
-    FILE    *in = 0;
-    se_out   out;
-    se_arena arena;
-    se_look  lk;
-    look_ctx L;
-    se_cr2_info  info;
-    se_jdec_info ji;
-    se_jpeg_exif ex;
-    se_jpeg *enc;
-    uint32_t poff = 0, plen = 0, got;
-    int pw, ph, t0, t1, t2, t3;
-    se_err rc;
-
-    memset(&out, 0, sizeof out);
-    memset(&L, 0, sizeof L);
-    memset(R, 0, sizeof *R);
-    t0 = get_ms_clock();
-
-    /* --- locate the preview and read the exposure data ----------------- */
-    hdr = fio_malloc(SE_HDR_BYTES);
-    if (!hdr) { se_logf("no memory for the header window"); return SE_E_NOMEM; }
-    in = FIO_OpenFile(cr2_path, O_RDONLY | O_SYNC);
-    if (!in) { rc = SE_E_IO; se_logf("cannot open %s", cr2_path); goto done; }
-    {
-        uint32_t size = FIO_GetFileSize_direct(cr2_path);
-        got = size < SE_HDR_BYTES ? size : SE_HDR_BYTES;
-    }
-    if (read_at(in, 0, hdr, got) != 0) { rc = SE_E_IO; se_logf("header read failed"); goto done; }
-    t1 = get_ms_clock();
-
-    rc = se_cr2_find_preview(hdr, got, &poff, &plen, &pw, &ph);
-    if (rc != SE_OK) { se_logf("no preview in the raw (rc=%d)", rc); goto done; }
-    if (se_cr2_parse(hdr, got, &info) != SE_OK) memset(&info, 0, sizeof info);
-    if (poff >= got) { rc = SE_E_UNSUPPORTED; se_logf("preview starts past the header window"); goto done; }
-    if (se_jpeg_dec_info(hdr + poff, got - poff, &ji) != SE_OK) {
-        rc = SE_E_BADFILE; se_logf("preview header unreadable"); goto done;
-    }
-
-    /* --- the preview, whole ------------------------------------------- */
-    pv = fio_malloc(plen);
-    if (!pv) {
-        rc = SE_E_NOMEM;
-        se_logf("no memory for the %d KB preview (%d KB free)", (int)(plen >> 10),
-                GetFreeMemForMalloc() >> 10);
-        goto done;
-    }
-    if (read_at(in, poff, pv, plen) != 0) { rc = SE_E_IO; se_logf("preview read failed"); goto done; }
-    FIO_CloseFile(in); in = 0;
-    t2 = get_ms_clock();
-
-    /* --- the look and the working memory ------------------------------- */
-    se_jpeg_scaled_size(ji.width, ji.height, scale, &R->ow, &R->oh);
-    R->scale = scale;
-    se_look_from_stock(st, scale, &lk);
-    {
-        int r0 = lk.hal_radius, a0 = lk.hal_amount;
-        /* Same budget as tools/previewcheck.c, or the two grade differently
-         * and the hash proves nothing. */
-        se_look_fit(&lk, R->ow, SE_LOOK_BUDGET);
-        if (a0 > 0 && lk.hal_amount == 0)
-            se_logf("halation off at %d wide: does not fit %d KB", R->ow, SE_LOOK_BUDGET >> 10);
-        else if (lk.hal_radius != r0)
-            se_logf("halation radius %d -> %d to fit", r0, lk.hal_radius);
-    }
-    amem = __mem_malloc(SE_ARENA, MEM_TEMPORARY, __FILE__, __LINE__);
-    out.buf = fio_malloc(SE_OUTBUF);
-    if (!amem || !out.buf) {
-        rc = SE_E_NOMEM;
-        se_logf("no memory for the develop (%d KB free)", GetFreeMemForMalloc() >> 10);
-        goto done;
-    }
-    se_arena_init(&arena, amem, SE_ARENA);
-
-    enc = SE_NEW(&arena, se_jpeg, 1);
-    if (!enc) { rc = SE_E_NOMEM; goto done; }
-    rc = se_look_begin(&L.run, &lk, R->ow, &arena);
-    if (rc != SE_OK) { se_logf("look stage refused at %d wide", R->ow); goto done; }
-    L.ow = R->ow; L.hash = FNV_INIT; L.enc = enc;
-
-    /* --- encode -------------------------------------------------------- */
-    out.f = FIO_CreateFile(out_path);
-    if (!out.f) { rc = SE_E_IO; se_logf("cannot create %s", out_path); goto done; }
-    memset(&ex, 0, sizeof ex);
-    ex.make          = info.make[0]  ? info.make  : "Canon";
-    ex.model         = info.model[0] ? info.model : "Canon EOS 700D";
-    ex.software      = st->name;
-    ex.datetime      = info.datetime;
-    ex.exposure_time = info.exposure_time;
-    ex.aperture      = info.aperture;
-    ex.iso           = info.iso;
-    {
-        /* 4:2:0, as every camera JPEG is: half the encoder's blocks and a
-         * third off the file. tools/previewcheck takes "420" to match. */
-        uint8_t *strip = SE_NEW(&arena, uint8_t, SE_JPEG_STRIP_BYTES(R->ow, 1));
-        if (!strip) { rc = SE_E_NOMEM; goto done; }
-        rc = se_jpeg_begin2(enc, R->ow, R->oh, 88, strip, &ex, out_sink, &out, 1);
-        if (rc != SE_OK) goto done;
-    }
-
-    rc = se_jpeg_decode_scaled(pv, plen, scale, &arena, look_rows, &L, &ji);
-    if (rc != SE_OK && !L.aborted) se_logf("preview decode rc=%d", rc);
-    /* the delay line still holds `radius` rows */
-    if (rc == SE_OK && !L.err) rc = se_look_end(L.run, look_emit, &L);
-    if (rc == SE_OK && !L.err) rc = se_jpeg_end(enc);
-    if (rc == SE_OK && out_flush(&out) != 0) rc = SE_E_IO;
-    if (L.err && rc == SE_OK) rc = SE_E_IO;
-    t3 = get_ms_clock();
-
-    R->hash = L.hash;
-    R->bytes = out.bytes;
-    R->arena_peak = arena.peak;
-    R->aborted = L.aborted;
-    R->ms_hdr = t1 - t0; R->ms_read = t2 - t1; R->ms_stream = t3 - t2;
-    R->ms_total = t3 - t0;
-
-done:
-    if (out.f) FIO_CloseFile(out.f);
-    if (rc != SE_OK && out.f) FIO_RemoveFile(out_path);
-    if (in) FIO_CloseFile(in);
-    if (out.buf) fio_free(out.buf);
-    if (amem) free(amem);
-    if (pv) fio_free(pv);
-    if (hdr) fio_free(hdr);
-    return rc;
-}
-
-/* ------------------------------------------------------------ the queue */
-/*
- * Frames waiting to be developed. Filled by the watcher (once a second,
- * on Magic Lantern's shoot task) and by "Develop last shot" (on the GUI
- * task); drained by the worker. Three tasks, one array: the watcher and
- * the menu only ever append at `tail`, the worker only ever reads at
- * `head`, and each index is written by exactly one side, which is the
- * whole of the locking.
- *
- * A frame is WAITING until Canon is idle and its size has held still
- * for two consecutive looks; then it is READY. A frame that never
- * appears -- JPEG-only shooting, or a counter that moved for some other
- * reason -- is dropped after a while.
- */
-#define SE_QUEUE 8
-
-typedef struct {
-    char     path[FIO_MAX_PATH_LENGTH];
-    uint32_t size;          /* last size seen                        */
-    int      stable;        /* looks at which the size did not change */
-    int      age;           /* looks since queued                     */
-    int      ready;
-    int      force;         /* asked for by hand: overwrite, no checks */
-} se_job;
-
-static se_job       se_q[SE_QUEUE];
-static volatile int se_q_head, se_q_tail;     /* indices, never wrap   */
-
-static int se_q_count(void) { return se_q_tail - se_q_head; }
-
-static se_job *se_q_push(const char *path, int force)
-{
-    se_job *j;
-    if (se_q_count() >= SE_QUEUE) {
-        se_logf("queue full, dropping %s", path);
-        return 0;
-    }
-    j = &se_q[se_q_tail % SE_QUEUE];
-    memset(j, 0, sizeof *j);
-    snprintf(j->path, sizeof j->path, "%s", path);
-    j->force = force;
-    j->ready = force;
-    se_q_tail++;
-    return j;
-}
-
-/* ---------------------------------------------------------- the watcher */
-
-static int se_last_file_number = -1;
-static int se_last_folder_number = -1;
-
-/*
- * Once a second, from Magic Lantern's shoot task.
- *
- * Canon's counter is the number of the last frame taken. It advances the
- * moment a frame is taken, which can be before the raw has finished
- * writing, so a new number only gets the frame QUEUED; it is developed
- * once lens_info.job_state is back to zero -- Canon's own "not writing"
- * -- and the file's size has held still across two looks. The 5D did
- * the same job with a directory walk every two seconds; the counter is
- * free.
- */
-static unsigned int se_watch_cbr(unsigned int ctx)
-{
-    struct card_info *card = get_shooting_card();
-    int num = card->file_number, folder = card->folder_number;
-    int i;
-
-    /* the first look is the baseline: nothing already on the card is new */
-    if (se_last_file_number < 0) {
-        se_last_file_number = num;
-        se_last_folder_number = folder;
-        return 0;
-    }
-
-    if (num != se_last_file_number || folder != se_last_folder_number) {
-        /* Queue only with auto on, but follow the counter either way: a
-         * shot taken with auto off is not a backlog to develop the moment
-         * it is switched back on. */
-        if (se_auto && se_nstocks) {
-            int n = se_last_file_number, steps = 0;
-            /* a burst can move the counter by more than one between looks */
-            while (n != num && steps < SE_QUEUE) {
-                char path[FIO_MAX_PATH_LENGTH];
-                n = n >= 9999 ? 1 : n + 1;
-                snprintf(path, sizeof path, "%s/%s%04d.CR2", get_dcim_dir(), get_file_prefix(), n);
-                if (se_q_push(path, 0)) steps++;
-                else break;
-            }
-        }
-        se_last_file_number = num;
-        se_last_folder_number = folder;
-    }
-
-    /* the screen: the label, and the picker's idle timeout */
-    if (se_pick_open) {
-        if (++se_pick_idle > 6) se_pick_close(0);
-        else se_pick_draw(0);       /* Canon may have painted over it */
-    } else {
-        se_draw_label();
-    }
-
-    /* ripen what is waiting */
-    for (i = se_q_head; i < se_q_tail; i++) {
-        se_job *j = &se_q[i % SE_QUEUE];
-        uint32_t sz;
-        if (j->ready) continue;
-        j->age++;
-        sz = file_size(j->path);
-        if (sz && sz == j->size) j->stable++; else j->stable = 0;
-        j->size = sz;
-        if (sz > (1u << 20) && j->stable >= 1 && lens_info.job_state == 0)
-            j->ready = 1;
-        else if (j->age > 30) {
-            se_logf("gave up waiting for %s", j->path);
-            j->ready = -1;          /* the worker skips it */
-        }
-    }
-    return 0;
-}
-
-/* ----------------------------------------------------------- the worker */
-
-static void se_develop_job(se_job *j)
-{
-    char out[FIO_MAX_PATH_LENGTH];
-    const se_stock *st;
-    se_result R;
-    se_err rc;
-    int scale = se_scale();
-
-    if (se_stock_index < 0 || se_stock_index >= se_nstocks) se_stock_index = 0;
-    st = &se_stocks[se_stock_index];
-    se_out_name(j->path, out, sizeof out);
-
-    if (!j->force && file_size(out) > 0) {
-        se_logf("%s already developed", out);
-        return;
-    }
-
-    se_busy = 1;
-    se_stage = "starting"; se_pct = 0;
-    se_waiting = se_q_count() - 1;
-    se_logf("develop %s + %s, %s size, %d waiting, %d KB free", j->path, st->name,
-            se_size_name(), se_waiting, GetFreeMemForMalloc() >> 10);
-
-    rc = se_develop_preview(j->path, out, st, scale, &R);
-
-    if (rc == SE_OK) {
-        se_done++;
-        snprintf(se_status, sizeof se_status, "%s %d.%ds",
-                 out + strlen(get_dcim_dir()) + 1, R.ms_total / 1000, (R.ms_total % 1000) / 100);
-        se_logf("wrote %s: %dx%d, %d KB, look hash %08x", out, R.ow, R.oh,
-                R.bytes >> 10, R.hash);
-        se_logf("time: hdr %d read %d stream %d total %d ms; arena peak %d KB",
-                R.ms_hdr, R.ms_read, R.ms_stream, R.ms_total, (int)(R.arena_peak >> 10));
-        if (!ml_shutdown_requested)
-            NotifyBox(1500, "Soup: %s %d.%d s", st->name, R.ms_total / 1000, (R.ms_total % 1000) / 100);
-    } else if (R.aborted) {
-        se_logf("%s abandoned: power off", j->path);
-    } else {
-        se_failed++;
-        snprintf(se_status, sizeof se_status, "failed: %s", se_strerror(rc));
-        se_logf("develop failed: %s (rc=%d)", se_strerror(rc), rc);
-        if (!ml_shutdown_requested)
-            NotifyBox(3000, "Soup: failed, %s", se_strerror(rc));
-    }
-    se_busy = 0;
-    se_log_flush();
-}
-
-/*
- * Lives for the whole session. Polls rather than blocks on a semaphore:
- * half a second of latency on a job that takes forty is nothing, and it
- * keeps the queue's locking as simple as it is.
- *
- * Canon's auto power-off is held while there is work. A full-size frame
- * takes three minutes and the default idle timer is one, so without this
- * the camera would switch itself off mid-develop -- and shutdown, which
- * is honoured within a row, would abandon the frame. Magic Lantern's
- * file manager and raw recorder hold it the same way. Only the worker
- * calls these two, so they always pair.
- */
-static void se_worker_task(void *arg)
-{
-    int held = 0;
-
-    while (!ml_shutdown_requested) {
-        int pending = se_q_count() > 0;
-
-        if (pending && !held) { powersave_prohibit(); held = 1; }
-        if (!pending && held) { powersave_permit();   held = 0; }
-
-        if (pending) {
-            se_job *j = &se_q[se_q_head % SE_QUEUE];
-            if (j->ready > 0) {
-                se_develop_job(j);
-                se_q_head++;
-            } else if (j->ready < 0) {
-                se_q_head++;
-            } else {
-                msleep(500);         /* the watcher is still ripening it */
-            }
-            continue;
-        }
-        msleep(500);
-    }
-    if (held) powersave_permit();
-}
-
-/* ------------------------------------------------- the label, the picker */
-/*
- * Two things on Canon's shooting screen, both drawn on Magic Lantern's
- * bitmap layer over it.
- *
- * The label: one line at the bottom, "SOUP PROVIA quarter", redrawn once
- * a second from the watcher because Canon repaints its screen whenever
- * it likes. The progress line, while a frame is developing, takes the
- * same spot.
- *
- * The picker: SET, in shooting mode, opens a list of the films over the
- * screen with the current one highlighted; the up and down arrows move,
- * SET chooses, Trash or MENU cancels, a half-press of the shutter cancels
- * and still fires, and it closes by itself after a few idle seconds.
- * Under the films, two more rows: DEVELOP LAST SHOT queues the newest
- * raw and closes, and AUTO DEVELOP flips the watcher and stays open --
- * so a shot can be judged on the back screen before it is developed:
- * auto off, shoot, look, SET, develop the one that deserves it. SET
- * is free in shooting mode on this body -- Canon leaves it unassigned,
- * and Magic Lantern claims it only when its SET+MainDial tweak is on.
- * The main dial does not move it: in shooting mode Canon turns the dial
- * into exposure changes before it ever becomes a button event, so it
- * never reaches a module. The cases below keep it harmless if it does.
- */
-#define SE_LABEL_X   10
-#define SE_LABEL_Y   440
-
-static void se_draw_label(void)
-{
-    if (!se_nstocks || se_busy || se_pick_open) return;
-    if (gui_menu_shown() || lv || is_play_mode() || !display_is_on()) return;
-    if (se_stock_index < 0 || se_stock_index >= se_nstocks) se_stock_index = 0;
-    bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), SE_LABEL_X, SE_LABEL_Y,
-               "SOUP %s  %s%s   ", se_stocks[se_stock_index].name, se_size_name(),
-               se_auto ? "" : "  manual");
-}
-
-#define SE_PICK_X   60
-#define SE_PICK_Y   8
-#define SE_PICK_W   600
-#define SE_PICK_ROW 24
-#define SE_PICK_DEVELOP (se_nstocks)        /* the two rows under the films */
-#define SE_PICK_AUTO    (se_nstocks + 1)
-#define SE_PICK_ROWS    (se_nstocks + 2)
-
-/*
- * `full` paints the box and border as well as the text: on opening and
- * on every key. The once-a-second repaint -- there in case Canon drew
- * its screen over the picker -- re-stamps only the text, in place, which
- * is invisible when nothing changed. Filling the box each second was a
- * visible flicker.
- */
-static void se_pick_draw(int full)
-{
-    int i, h = 70 + SE_PICK_ROWS * SE_PICK_ROW + 20;
-    const char *desc;
-    if (full) {
-        bmp_fill(COLOR_BLACK, SE_PICK_X, SE_PICK_Y, SE_PICK_W, h);
-        bmp_draw_rect(COLOR_WHITE, SE_PICK_X, SE_PICK_Y, SE_PICK_W, h);
-    }
-    bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), SE_PICK_X + 20, SE_PICK_Y + 8, "FILM");
-    for (i = 0; i < SE_PICK_ROWS; i++) {
-        int y = SE_PICK_Y + 40 + i * SE_PICK_ROW;
-        uint32_t f = (i == se_pick_sel) ? FONT(FONT_MED, COLOR_BLACK, COLOR_WHITE)
-                                        : FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK);
-        if (i < se_nstocks)
-            bmp_printf(f, SE_PICK_X + 20, y, " %s%s ", se_stocks[i].name,
-                       i == se_stock_index ? "  *" : "");
-        else if (i == SE_PICK_DEVELOP)
-            bmp_printf(f, SE_PICK_X + 20, y, " DEVELOP LAST SHOT ");
-        else
-            bmp_printf(f, SE_PICK_X + 20, y, " AUTO DEVELOP  %s ", se_auto ? "ON " : "OFF");
-    }
-    if (se_pick_sel < se_nstocks)      desc = se_stocks[se_pick_sel].desc;
-    else if (se_pick_sel == SE_PICK_DEVELOP) desc = "Develop the newest raw with the film marked *";
-    else desc = se_auto ? "Every shot is developed as it is taken"
-                        : "Shots are kept raw until you ask";
-    bmp_printf(FONT(FONT_SMALL, COLOR_CYAN, COLOR_BLACK), SE_PICK_X + 20,
-               SE_PICK_Y + 44 + SE_PICK_ROWS * SE_PICK_ROW, "%-56s", desc);
-    bmp_printf(FONT(FONT_SMALL, COLOR_WHITE, COLOR_BLACK), SE_PICK_X + 20,
-               SE_PICK_Y + h - 18, "UP/DOWN move   SET choose   TRASH cancel");
-}
-
-static void se_pick_close(int apply)
-{
-    if (apply) {
-        se_stock_index = se_pick_sel;
-        se_stock_id = (int)se_name_id(se_stocks[se_stock_index].name);
-    }
-    se_pick_open = 0;
-    redraw();                       /* Canon paints its screen back */
-    se_draw_label();
-}
-
-/*
- * Every key, before Magic Lantern or Canon see it. Returning 0 keeps it.
- * The convention is Magic Lantern's game module's, which is the shipped
- * example of a module owning the keys.
- */
-static unsigned int se_key_cbr(unsigned int key)
-{
-    if (!se_pick_open) {
-        if (key == MODULE_KEY_PRESS_SET && se_nstocks && !ml_shutdown_requested
-            && !gui_menu_shown() && !lv && !is_play_mode() && display_is_on()) {
-            se_pick_open = 1;
-            se_pick_sel  = se_stock_index;
-            se_pick_idle = 0;
-            se_pick_draw(1);
-            return 0;
-        }
-        return 1;
-    }
-
-    se_pick_idle = 0;
-    switch (key) {
-    case MODULE_KEY_WHEEL_UP:
-    case MODULE_KEY_WHEEL_LEFT:
-    case MODULE_KEY_PRESS_UP:
-    case MODULE_KEY_PRESS_LEFT:
-        se_pick_sel = (se_pick_sel + SE_PICK_ROWS - 1) % SE_PICK_ROWS;
-        se_pick_draw(1);
-        return 0;
-    case MODULE_KEY_WHEEL_DOWN:
-    case MODULE_KEY_WHEEL_RIGHT:
-    case MODULE_KEY_PRESS_DOWN:
-    case MODULE_KEY_PRESS_RIGHT:
-        se_pick_sel = (se_pick_sel + 1) % SE_PICK_ROWS;
-        se_pick_draw(1);
-        return 0;
-    case MODULE_KEY_PRESS_SET:
-        if (se_pick_sel == SE_PICK_AUTO) {
-            se_auto = !se_auto;             /* and stay open */
-            se_pick_draw(1);
-        } else if (se_pick_sel == SE_PICK_DEVELOP) {
-            char cr2[FIO_MAX_PATH_LENGTH];
-            se_pick_close(0);
-            if (se_newest_cr2(cr2, sizeof cr2) == 0 && se_q_push(cr2, 1))
-                NotifyBox(1000, "Soup: developing %s", cr2 + strlen(get_dcim_dir()) + 1);
-            else
-                NotifyBox(1500, "Soup: no raw to develop");
-        } else {
-            se_pick_close(1);
-        }
-        return 0;
-    case MODULE_KEY_UNPRESS_SET:
-    case MODULE_KEY_UNPRESS_UDLR:
-        return 0;                   /* the releases of keys we took */
-    case MODULE_KEY_TRASH:
-    case MODULE_KEY_MENU:
-    case MODULE_KEY_Q:
-    case MODULE_KEY_INFO:
-    case MODULE_KEY_PLAY:
-        se_pick_close(0);
-        return 0;
-    case MODULE_KEY_PRESS_HALFSHUTTER:
-    case MODULE_KEY_PRESS_FULLSHUTTER:
-        se_pick_close(0);
-        return 1;                   /* and the shutter still fires */
-    default:
-        return 1;
-    }
 }
 
 /* ---------------------------------------------------------------- menu */

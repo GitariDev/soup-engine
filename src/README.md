@@ -16,27 +16,40 @@ simulator and the film stocks.
 
 ## Building
 
+The desktop side, which every camera shares:
+
 ```sh
 make all        # the desktop tools
 make test       # the host suite
-make simtest    # the real payload against a mock camera, byte for byte
+make test-full  # the suite, the sample-driven checks, and a sanitiser build
 make arm        # check the engine still builds freestanding for ARM946E-S
-make payload    # AUTOEXEC.BIN and SE.BIN for the card
 ```
 
-You need `arm-none-eabi-gcc` for the camera build and nothing unusual
-for the rest.
+Nothing unusual is needed for those. The camera builds each want a
+cross-compiler and something of Magic Lantern's:
 
-`make payload` also needs Magic Lantern's own `autoexec.bin`, the one
-their installer put on your card, at `vendor/magiclantern-5Dc/`. It is
-theirs to distribute so it is not included here, and `make payload`
-stops with a note rather than guessing. Everything else builds without
-it, and you do not need it to use the card files in `../card`.
+```sh
+make simtest    # 5D Classic: the real payload against a mock camera, byte for byte
+make payload    # 5D Classic: AUTOEXEC.BIN and SE.BIN for the card
+make sim700d    # EOS 700D: the real module against a mock camera, byte for byte
+make card-700d  # EOS 700D: soupeng.mo and the card files, in out/card-700d
+```
 
-`make simtest` is the one that matters. It runs the actual payload
-against a mock of Canon's API and compares what the simulated camera
-writes against a desktop reference, byte for byte. That equality is why
-the look lives in one shared file rather than being written twice.
+`make payload` needs Magic Lantern's own `autoexec.bin`, the one their
+installer put on your card, at `vendor/magiclantern-5Dc/`; so does
+`make simtest`. It is theirs to distribute so it is not included here,
+and both stop with a note rather than guessing. `make card-700d` needs
+their source instead, which `make vendor-700d` fetches (see below).
+Nothing of theirs is committed here, and you do not need any of it to
+use the card files in `../card`.
+
+The two sim targets are the ones that matter. Each runs the actual
+camera code against a mock of the camera's API and compares what the
+simulated camera writes against a desktop reference, byte for byte.
+That equality is why the look lives in one shared file rather than
+being written twice. On the 700D the same check runs against the real
+camera too: `tools/verify-700d.py` re-renders every frame the camera
+wrote from the frame's own EXIF and compares the files.
 
 ## The EOS 700D module
 
@@ -47,12 +60,21 @@ their module build. It needs two things outside this repository:
 
 | | |
 |:--|:--|
-| `vendor/magiclantern_simplified/` | their source, checked out at the commit the camera's `autoexec.bin` was built from (`ed3e7c0df` for the 2025-06-20 700D build) plus two small fixes to their build scripts for current Python and for a module living outside their tree. `vendor/` is ignored by git. |
+| `vendor/magiclantern_simplified/` | their source, checked out at the commit the camera's `autoexec.bin` was built from (`ed3e7c0df` for the 2025-06-20 700D build) plus `ml/700d/patches/`, three small fixes to their build scripts for current Python and for a module living outside their tree. `make vendor-700d` clones, checks out and patches it; `vendor/` is ignored by git. |
 | Arm's GNU toolchain | `arm-none-eabi-gcc` with newlib's headers, which Homebrew's package lacks. The Makefile looks for it at `~/.local/opt/arm-gnu-toolchain-15.3.rel2`; set `ARM_TOOLCHAIN` otherwise. It must live at a path without spaces, because their Makefile does not quote the compiler. |
 
 ```sh
 make card-700d   # soupeng.mo, the films and the enable file, in out/card-700d/
 ```
+
+The module is four files -- `soupeng.c` (films, menu, config, lifetime),
+`develop.c` (one frame), `watch.c` (the queue and its tasks), `screen.c`
+(the label and the picker) -- sharing `soupeng.h`, and they reach Magic
+Lantern only through `ml.h`. `tools/sim700d/` supplies a mock of that
+one header and runs the real four on the desktop: it develops a frame
+and compares it with `previewcheck` byte for byte, then drives the
+watcher through a burst, a half-written file and a power-off, and the
+picker through its keys.
 
 Copy the contents of `out/card-700d` onto a card that already has
 Magic Lantern's 700D build on it, eject it, and switch the camera on
