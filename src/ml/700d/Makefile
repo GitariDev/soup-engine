@@ -40,10 +40,18 @@ override READELF     := $(ARM_TOOLCHAIN)/arm-none-eabi-readelf
 include $(TOP_DIR)/modules/Makefile
 .DEFAULT_GOAL := $(BUILD_DIR)/module_complete
 
-# look.c is the per-pixel path. At -Os gcc calls __aeabi_idiv even for a
-# constant divisor; -O2 turns those into multiply-shifts. Same reasoning
-# as ml/payload/Makefile, same byte-identical result.
+# The per-pixel paths. At -Os gcc calls __aeabi_idiv even for a constant
+# divisor; -O2 turns those into multiply-shifts. Same reasoning as
+# ml/payload/Makefile for look.c, extended to the JPEG codec once the
+# camera showed where the time goes: a half-size frame took 46 s with the
+# card accounting for 52 ms of it. All integer code, so the result is the
+# same bytes -- and the look hash in the log, checked against
+# tools/previewcheck, is what proves that rather than this comment.
 $(BUILD_DIR)/look.o: $(ENGINE)/look.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(CDEPS_FLAGS) -O2 -c -o $@ $<
+$(BUILD_DIR)/jpeg_dec.o: $(ENGINE)/jpeg_dec.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(CDEPS_FLAGS) -O2 -c -o $@ $<
+$(BUILD_DIR)/jpeg_enc.o: $(ENGINE)/jpeg_enc.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(CDEPS_FLAGS) -O2 -c -o $@ $<
 
 $(BUILD_DIR)/%.o: $(ENGINE)/%.c | $(BUILD_DIR)

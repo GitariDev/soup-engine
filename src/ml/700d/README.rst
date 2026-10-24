@@ -4,12 +4,13 @@ Soup Engine
 Film looks, in the camera.
 
 Put the film stocks (the ``.fs`` files) in ``ML/FILM`` on the card. Pick
-one under Shoot > Soup Engine. Every photo you take after that gets a
-second JPEG saved beside the raw, with the look already on it. The raw
-file is never modified.
+one under Shoot > Soup Engine, then Develop last shot: the newest raw on
+the card gets a second JPEG saved beside it, ``FLM_1234.JPG``, with the
+look already on it. The raw file is never modified.
 
-This is the 700D port, still being built up. Right now it lists and
-selects the films; developing comes next.
+Half size (2592x1728) takes about 45 seconds; full size about three
+minutes. This is the 700D port, still being built up: developing every
+shot automatically comes next.
 
 :Author: luigi manga (engine); 700D port by GitariDev
 :License: GPL v2

@@ -1021,7 +1021,8 @@ se_err se_cr2_find_preview(const void *buf, size_t len,
     if (bytes) *bytes = sb;
     if (w)     *w     = (int)iw;
     if (h)     *h     = (int)ih;
-    se_log("cr2: preview %ux%u at %u, %u bytes", iw, ih, so, sb);
+    /* %d, not %u: on the camera this is Canon's printf, which has no %u */
+    se_log("cr2: preview %dx%d at %d, %d bytes", (int)iw, (int)ih, (int)so, (int)sb);
     return SE_OK;
 }
 

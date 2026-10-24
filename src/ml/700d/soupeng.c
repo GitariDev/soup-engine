@@ -542,17 +542,18 @@ done:
 }
 
 /*
- * The output name. IMG_1234.FLM.JPG beside the raw is what the 5D writes
- * and what the README promises. Canon's filesystem is 8.3 and nothing in
- * Magic Lantern writes a name like that, so it may be refused; if it is,
- * FLM_1234.JPG, and the log says which.
- */
-/*
+ * The output name: FLM_1234.JPG in the raw's folder.
+ *
+ * The 5D writes IMG_1234.FLM.JPG, and so did the first build of this,
+ * which the camera refused: Canon's filesystem is 8.3 and DryOS will not
+ * create a name that is not. FLM_ keeps the number and sorts the films
+ * together, after the raws.
+ *
  * Built by hand, not with snprintf: the snprintf here is Canon's, and it
- * does not know %.*s. The first build on the camera asked it for exactly
+ * does not know %.*s. The build before that one asked it for exactly
  * that and tried to create a file called ".*s.FLM.JPG".
  */
-static void se_out_names(const char *cr2, char *a, char *b, size_t cap)
+static void se_out_name(const char *cr2, char *out, size_t cap)
 {
     size_t l = strlen(cr2);                 /* ".../IMG_1234.CR2" */
     size_t dir = l;                         /* length including the '/' */
@@ -561,18 +562,16 @@ static void se_out_names(const char *cr2, char *a, char *b, size_t cap)
     digits = cr2 + l - 4;                   /* the four before ".CR2" */
     if (digits - 4 >= cr2 + dir) digits -= 4; else digits = cr2 + dir;
 
-    if (l - 4 + 9 >= cap || dir + 13 >= cap) { a[0] = b[0] = 0; return; }
-    memcpy(a, cr2, l - 4);
-    strcpy(a + l - 4, ".FLM.JPG");
-    memcpy(b, cr2, dir);
-    strcpy(b + dir, "FLM_");
-    memcpy(b + dir + 4, digits, 4);
-    strcpy(b + dir + 8, ".JPG");
+    if (dir + 13 >= cap) { out[0] = 0; return; }
+    memcpy(out, cr2, dir);
+    strcpy(out + dir, "FLM_");
+    memcpy(out + dir + 4, digits, 4);
+    strcpy(out + dir + 8, ".JPG");
 }
 
 static void se_develop_task(void *arg)
 {
-    char cr2[FIO_MAX_PATH_LENGTH], out[FIO_MAX_PATH_LENGTH], alt[FIO_MAX_PATH_LENGTH];
+    char cr2[FIO_MAX_PATH_LENGTH], out[FIO_MAX_PATH_LENGTH];
     const se_stock *st;
     se_result R;
     se_err rc;
@@ -586,23 +585,11 @@ static void se_develop_task(void *arg)
         se_logf("%s", se_status);
         goto out;
     }
-    se_out_names(cr2, out, alt, sizeof out);
+    se_out_name(cr2, out, sizeof out);
     se_logf("develop %s + %s, %s size, %d KB free", cr2, st->name,
             scale == 1 ? "full" : "half", GetFreeMemForMalloc() >> 10);
 
     rc = se_develop_preview(cr2, out, st, scale, &R);
-    if (rc == SE_E_IO && R.ms_total == 0) {
-        /* the long name may have been the problem; try the 8.3 one */
-        FILE *probe = FIO_CreateFile(out);
-        if (!probe) {
-            se_logf("%s refused, trying %s", out, alt);
-            snprintf(out, sizeof out, "%s", alt);
-            rc = se_develop_preview(cr2, out, st, scale, &R);
-        } else {
-            FIO_CloseFile(probe);
-            FIO_RemoveFile(out);
-        }
-    }
 
     if (rc == SE_OK) {
         se_last_ms = R.ms_total;
@@ -704,7 +691,7 @@ static struct menu_entry se_menu[] =
                 .update     = se_develop_update,
                 .icon_type  = IT_ACTION,
                 .help       = "Develop the newest raw on the card with this film, now.",
-                .help2      = "Writes IMG_1234.FLM.JPG beside it. The raw is never modified.",
+                .help2      = "Writes FLM_1234.JPG beside it. The raw is never modified.",
             },
             {
                 .name       = "Size",
