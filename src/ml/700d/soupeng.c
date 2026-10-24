@@ -294,8 +294,7 @@ static MENU_UPDATE_FUNC(se_film_update)
 static MENU_UPDATE_FUNC(se_develop_update)
 {
     if (se_busy) {
-        if (se_waiting) MENU_SET_VALUE("%s %d%%, %d waiting", se_stage, se_pct, se_waiting);
-        else MENU_SET_VALUE("%s %d%%", se_stage, se_pct);
+        MENU_SET_VALUE("%s %d%%%s", se_stage, se_pct, se_waiting ? ", more queued" : "");
     } else if (se_q_count()) {
         MENU_SET_VALUE("%d waiting", se_q_count());
     } else if (se_status[0]) {

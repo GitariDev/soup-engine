@@ -172,16 +172,15 @@ void se_progress_hook(void *ctx, const char *stage, int pct)
     if (pct == se_pct && stage == se_stage) return;
     se_stage = stage; se_pct = pct;
     if (gui_menu_shown() || ml_shutdown_requested) return;
-    if (pct % 5 == 0) {
-        if (se_waiting)
-            bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), 10, 440,
-                       "SOUP %s %s %d%%  +%d   ",
-                       se_stocks[se_stock_index].name, stage, pct, se_waiting);
-        else
-            bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), 10, 440,
-                       "SOUP %s %s %d%%      ",
-                       se_stocks[se_stock_index].name, stage, pct);
-    }
+    /* "more queued" rather than a number: the number is right in the log
+     * and came out as 0 on the screen every time, and a conversion after
+     * %% is something Magic Lantern's own code never asks Canon's printf
+     * for. A word cannot be wrong. The count is in the log. */
+    if (pct % 5 == 0)
+        bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), 10, 440,
+                   "SOUP %s %s %d%%  %s",
+                   se_stocks[se_stock_index].name, stage, pct,
+                   se_waiting ? "more queued" : "           ");
 }
 
 /*
