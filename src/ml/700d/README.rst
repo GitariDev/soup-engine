@@ -9,11 +9,21 @@ with the look on it. The raw is never modified.
 Quick picker
 ------------
 
-In shooting mode press SET. The up and down arrows move (not the
-dial, which Canon keeps for exposure), SET chooses, Trash cancels.
-Under the films: DEVELOP LAST SHOT, and AUTO DEVELOP on or off. With
-auto off, shoot and look first, then develop the shot you want. The
-current film is shown at the bottom of the shooting screen.
+In shooting mode press INFO: the film list is the first stop of
+Canon's INFO cycle. The wheel or the arrows move, SET chooses a film
+or flips the auto switch, Trash cancels, and INFO again closes it and
+goes on to Canon's next screen. Outside the open list SET is left to
+Canon, and the list stays out of Canon's menu, the Q screen and the
+other settings screens. While it is
+open every button is the list's: nothing underneath it reacts, except
+the shutter, which closes it and still fires. Under the films: DEVELOP
+LAST SHOT, and AUTO DEVELOP on or off. With auto off, shoot and look
+first, then develop the shot you want. The current film is shown at
+the bottom right of the shooting screen, with a red ML BRACKET ON above it
+if Advanced Bracket is on in this Shoot menu: that makes every shutter
+press a sequence. While a frame develops the same line shows its
+progress and how many frames wait behind it; do not switch off until
+it is clear.
 
 Sizes
 -----

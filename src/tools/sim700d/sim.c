@@ -15,10 +15,18 @@
  *   4. auto off, a shot: nothing queued; auto on again: still nothing,
  *      because the counter was followed while off;
  *   5. a raw that never finishes: given up after thirty ticks;
- *   6. the picker: SET opens, DOWN twice and SET picks the third film
- *      and saves its name's hash, TRASH cancels, DEVELOP LAST SHOT
- *      queues, the AUTO row flips and stays open, half-shutter closes
- *      and passes the key through, six idle ticks close it;
+ *   6. the picker: SET is left alone; INFO on the shooting screen
+ *      opens it, DOWN twice and SET picks the third film and saves its
+ *      name's hash, the wheel moves it, INFO again closes it and goes
+ *      on to Canon, TRASH cancels, DEVELOP LAST SHOT queues, the AUTO
+ *      row flips and stays open, half-shutter closes and passes the key
+ *      through, six idle ticks close it, and none of it happens in
+ *      Magic Lantern's menu, live view, Canon's menu, a Canon dialog
+ *      such as the Q screen, or with the display off; while it is open
+ *      every named button is the picker's, with the releases of what it
+ *      took, and Canon's own events pass -- delivered as Magic Lantern
+ *      delivers them, the translated key first and then the raw event;
+ *      and the progress text carries the count with no %% near it;
  *   7. power-off mid-frame: the worker stops within a row and the
  *      partial file is gone.
  *
@@ -48,6 +56,8 @@
 extern unsigned (*sim_module_init)(void), (*sim_module_deinit)(void);
 extern unsigned (*sim_cbr_clock)(unsigned), (*sim_cbr_key)(unsigned);
 extern int se_nstocks, se_stock_index, se_stock_id, se_auto, se_size, se_waiting;
+extern int se_pct; extern const char *se_stage;
+extern int se_progress_text(char *buf, size_t cap);
 extern volatile int se_busy, se_q_head, se_q_tail;
 extern int se_q_count(void);
 extern uint32_t se_name_id(const char *);
@@ -200,6 +210,7 @@ int bmp_printf(uint32_t font, int x, int y, const char *fmt, ...)
     char s[256]; va_list ap;
     va_start(ap, fmt); vsnprintf(s, sizeof s, fmt, ap); va_end(ap);
     g_draws++;
+    if (font & FONT_ALIGN_RIGHT) x -= (int)strlen(s) * 10;    /* anchored on the right */
     if (x < 0 || y < 0 || x >= 720 || y + 24 > 480) g_draw_errors++;
     return (int)strlen(s) * 10;
 }
@@ -214,12 +225,48 @@ int gui_menu_shown(void) { return g_menu_shown; }
 int display_is_on(void) { return g_display_on; }
 int is_play_mode(void) { return g_play_mode; }
 void redraw(void) {}
+int gui_state;                                   /* 0: Canon idle */
+static int g_gui_mode;                           /* 0: no Canon dialog */
+int get_gui_mode(void) { return g_gui_mode; }
+static int g_bracket;
+int is_hdr_bracketing_enabled(void) { return g_bracket; }
+
 void menu_add(const char *name, struct menu_entry *e, int count) {}
 void menu_remove(const char *name, struct menu_entry *e, int count) {}
 MENU_SELECT_FUNC(menu_open_submenu) {}
 
 /* ------------------------------------------------------------ driver */
 static void tick(int n) { while (n-- > 0) sim_cbr_clock(0); }
+
+/*
+ * One raw button event, delivered the way Magic Lantern's
+ * handle_module_keys delivers it on the 700D: translated to a module key
+ * (0 when there is no translation -- the arrow releases, the zoom-out
+ * button, Canon's own notifications) for the key callback, and if that
+ * lets it through, the raw event for the raw callback. 0 means taken.
+ */
+extern unsigned (*sim_cbr_raw)(se_ctx_t);
+static int ev(int code)
+{
+    static const int xlat[][2] = {
+        { BGMT_WHEEL_UP, MODULE_KEY_WHEEL_UP }, { BGMT_WHEEL_DOWN, MODULE_KEY_WHEEL_DOWN },
+        { BGMT_PRESS_SET, MODULE_KEY_PRESS_SET }, { BGMT_UNPRESS_SET, MODULE_KEY_UNPRESS_SET },
+        { BGMT_MENU, MODULE_KEY_MENU }, { BGMT_INFO, MODULE_KEY_INFO }, { BGMT_PLAY, MODULE_KEY_PLAY },
+        { BGMT_TRASH, MODULE_KEY_TRASH }, { BGMT_LV, MODULE_KEY_REC }, { BGMT_PRESS_ZOOM_IN, MODULE_KEY_PRESS_ZOOMIN },
+        { BGMT_PRESS_UP, MODULE_KEY_PRESS_UP }, { BGMT_PRESS_DOWN, MODULE_KEY_PRESS_DOWN },
+        { BGMT_PRESS_LEFT, MODULE_KEY_PRESS_LEFT }, { BGMT_PRESS_RIGHT, MODULE_KEY_PRESS_RIGHT },
+        { BGMT_PRESS_HALFSHUTTER, MODULE_KEY_PRESS_HALFSHUTTER },
+        { BGMT_TOUCH_1_FINGER, MODULE_KEY_TOUCH_1_FINGER }, { BGMT_UNTOUCH_1_FINGER, MODULE_KEY_UNTOUCH_1_FINGER },
+        { BGMT_TOUCH_2_FINGER, MODULE_KEY_TOUCH_2_FINGER }, { BGMT_UNTOUCH_2_FINGER, MODULE_KEY_UNTOUCH_2_FINGER },
+        { BGMT_Q, MODULE_KEY_Q },
+    };
+    struct event e = { 0, code, 0, 0 };
+    int i, key = 0;
+    for (i = 0; i < (int)(sizeof xlat / sizeof xlat[0]); i++)
+        if (xlat[i][0] == code) { key = xlat[i][1]; break; }
+    if (sim_cbr_key(key) == 0) return 0;
+    return sim_cbr_raw((se_ctx_t)&e);
+}
 
 static void wait_idle(int max_s)
 {
@@ -328,42 +375,94 @@ int main(int argc, char **argv)
 
     /* 6. the picker */
     { int k, before = se_stock_index;
-      check(sim_cbr_key(MODULE_KEY_PRESS_SET) == 0, "SET in shooting mode opens the picker");
-      sim_cbr_key(MODULE_KEY_PRESS_DOWN); sim_cbr_key(MODULE_KEY_PRESS_DOWN);
-      sim_cbr_key(MODULE_KEY_PRESS_SET);
+      check(ev(BGMT_PRESS_SET) == 1 && ev(BGMT_UNPRESS_SET) == 1, "SET is left alone on the shooting screen");
+      check(ev(BGMT_PRESS_DOWN) == 1, "and it opened nothing");
+      check(ev(BGMT_INFO) == 0, "INFO on the shooting screen opens the picker");
+      check(ev(BGMT_PRESS_DOWN) == 0, "which takes the arrows");
+      ev(BGMT_PRESS_DOWN);
+      check(ev(BGMT_PRESS_SET) == 0, "SET chooses");
       check(se_stock_index == (before + 2) % se_nstocks, "DOWN DOWN SET picks the film two along (%d -> %d)", before, se_stock_index);
       check((int)se_name_id(se_stocks[se_stock_index].name) == se_stock_id, "and saves its name's hash");
-      sim_cbr_key(MODULE_KEY_PRESS_SET);
-      sim_cbr_key(MODULE_KEY_PRESS_UP); sim_cbr_key(MODULE_KEY_PRESS_UP); sim_cbr_key(MODULE_KEY_TRASH);
-      check(se_stock_index == (before + 2) % se_nstocks, "TRASH cancels without changing the film");
+      check(ev(BGMT_UNPRESS_SET) == 0, "the release of a choosing press is taken with it");
+      check(ev(BGMT_UNPRESS_SET) == 1, "a later SET release is Canon's");
+      before = se_stock_index;
+      ev(BGMT_INFO); ev(BGMT_WHEEL_DOWN); ev(BGMT_WHEEL_DOWN); ev(BGMT_WHEEL_DOWN); ev(BGMT_PRESS_SET); ev(BGMT_UNPRESS_SET);
+      check(se_stock_index == (before + 3) % se_nstocks, "the wheel moves it: three clicks and SET (%d -> %d)", before, se_stock_index);
+      ev(BGMT_INFO); ev(BGMT_PRESS_UP);
+      check(ev(BGMT_INFO) == 1, "INFO while open closes the picker and passes on to Canon's next screen");
+      check(se_stock_index == (before + 3) % se_nstocks, "without changing the film");
+      check(ev(BGMT_PRESS_DOWN) == 1, "and it is closed");
+      ev(BGMT_INFO); ev(BGMT_PRESS_UP); ev(BGMT_PRESS_UP);
+      check(ev(BGMT_TRASH) == 0 && se_stock_index == (before + 3) % se_nstocks, "TRASH cancels without changing the film");
       /* the picker opens on the current film; UP wraps past the top into
        * the two action rows, AUTO first and DEVELOP above it */
-      sim_cbr_key(MODULE_KEY_PRESS_SET);
-      for (k = 0; k < se_stock_index + 1; k++) sim_cbr_key(MODULE_KEY_PRESS_UP);
-      { int a = se_auto; sim_cbr_key(MODULE_KEY_PRESS_SET);
+      ev(BGMT_INFO);
+      for (k = 0; k < se_stock_index + 1; k++) ev(BGMT_PRESS_UP);
+      { int a = se_auto; ev(BGMT_PRESS_SET); ev(BGMT_UNPRESS_SET);
         check(se_auto == !a, "the AUTO row flips auto develop (%d -> %d)", a, se_auto);
-        check(sim_cbr_key(MODULE_KEY_PRESS_DOWN) == 0, "and the picker stayed open");
-        sim_cbr_key(MODULE_KEY_TRASH); se_auto = 1; }
-      sim_cbr_key(MODULE_KEY_PRESS_SET);
-      check(sim_cbr_key(MODULE_KEY_PRESS_HALFSHUTTER) == 1, "half-shutter closes it and passes through");
-      check(sim_cbr_key(MODULE_KEY_PRESS_DOWN) == 1, "closed: keys pass through again");
-      sim_cbr_key(MODULE_KEY_PRESS_SET); tick(7);
-      check(sim_cbr_key(MODULE_KEY_PRESS_DOWN) == 1, "six idle ticks close it");
-      sim_cbr_key(MODULE_KEY_PRESS_SET);
-      for (k = 0; k < se_stock_index + 2; k++) sim_cbr_key(MODULE_KEY_PRESS_UP);  /* the DEVELOP row */
-      sim_cbr_key(MODULE_KEY_PRESS_SET);
+        check(ev(BGMT_PRESS_DOWN) == 0, "and the picker stayed open");
+        ev(BGMT_TRASH); se_auto = 1; }
+      ev(BGMT_INFO);
+      check(ev(BGMT_PRESS_HALFSHUTTER) == 1, "half-shutter closes it and passes through");
+      check(ev(BGMT_PRESS_DOWN) == 1, "closed: keys pass through again");
+      ev(BGMT_INFO); tick(7);
+      check(ev(BGMT_PRESS_DOWN) == 1, "six idle ticks close it");
+      ev(BGMT_INFO);
+      for (k = 0; k < se_stock_index + 2; k++) ev(BGMT_PRESS_UP);  /* the DEVELOP row */
+      ev(BGMT_PRESS_SET); ev(BGMT_UNPRESS_SET);
       check(se_q_count() == 1 || se_busy, "DEVELOP LAST SHOT queues the newest raw");
       { int before = se_q_tail;
-        sim_cbr_key(MODULE_KEY_PRESS_SET);
-        for (k = 0; k < se_stock_index + 2; k++) sim_cbr_key(MODULE_KEY_PRESS_UP);
-        sim_cbr_key(MODULE_KEY_PRESS_SET);
+        ev(BGMT_INFO);
+        for (k = 0; k < se_stock_index + 2; k++) ev(BGMT_PRESS_UP);
+        ev(BGMT_PRESS_SET); ev(BGMT_UNPRESS_SET);
         check(se_q_tail == before, "pressing it again does not queue the same frame twice"); }
       wait_idle(120);
+      /* nowhere but the bare shooting screen */
       g_menu_shown = 1;
-      check(sim_cbr_key(MODULE_KEY_PRESS_SET) == 1, "SET is left alone while Magic Lantern's menu is up");
+      check(ev(BGMT_INFO) == 1 && ev(BGMT_PRESS_SET) == 1 && ev(BGMT_UNPRESS_SET) == 1 && ev(BGMT_PRESS_DOWN) == 1,
+            "INFO is left alone while Magic Lantern's menu is up, and SET with it");
       g_menu_shown = 0; lv = 1;
-      check(sim_cbr_key(MODULE_KEY_PRESS_SET) == 1, "and in live view");
-      lv = 0;
+      check(ev(BGMT_INFO) == 1 && ev(BGMT_PRESS_SET) == 1 && ev(BGMT_UNPRESS_SET) == 1 && ev(BGMT_PRESS_DOWN) == 1, "and in live view");
+      lv = 0; gui_state = 9;                      /* Canon's Q screen */
+      check(ev(BGMT_INFO) == 1 && ev(BGMT_PRESS_SET) == 1 && ev(BGMT_UNPRESS_SET) == 1 && ev(BGMT_PRESS_DOWN) == 1,
+            "and in Canon's Q screen, where SET is how Canon opens things");
+      gui_state = 0; g_gui_mode = 2;              /* Canon's menu */
+      check(ev(BGMT_INFO) == 1 && ev(BGMT_PRESS_SET) == 1 && ev(BGMT_UNPRESS_SET) == 1, "and in Canon's menu, where SET confirms");
+      g_gui_mode = 0; g_display_on = 0;           /* the dark end of Canon's INFO cycle */
+      check(ev(BGMT_INFO) == 1 && ev(BGMT_PRESS_SET) == 1 && ev(BGMT_UNPRESS_SET) == 1, "with the display off both are Canon's: INFO turns the display back on");
+      g_display_on = 1;
+      /* the bracket warning is drawn with the label */
+      { int d = g_draws; g_bracket = 1; tick(1); g_bracket = 0;
+        check(g_draws - d == 2, "the label warns when ML's Advanced Bracket is on (%d draws)", g_draws - d); }
+      /* while it is open, nothing underneath: every named button is the
+       * picker's, and the releases of what it took are taken too */
+      { int idx = se_stock_index;
+        ev(BGMT_INFO);
+        check(ev(BGMT_PRESS_UP) == 0, "open: an arrow press is the picker's, not Canon's ISO");
+        check(ev(BGMT_UNPRESS_UP) == 0, "and so is its release, which ML does not translate");
+        check(ev(GMT_OLC_INFO_CHANGED) == 1, "Canon's own notifications pass");
+        check(ev(BGMT_LV) == 0, "LV closes the picker and goes no further");
+        check(ev(BGMT_UNPRESS_UP) == 1, "closed: an arrow release the picker did not take passes");
+        check(ev(BGMT_LV) == 1, "closed: LV is Canon's again");
+        ev(BGMT_INFO);
+        check(ev(BGMT_PRESS_ZOOM_OUT) == 0, "AE lock, which ML does not translate, is taken while open and closes it");
+        check(ev(BGMT_UNPRESS_ZOOM_OUT) == 0, "with its release");
+        check(ev(BGMT_PRESS_ZOOM_OUT) == 1 && ev(BGMT_UNPRESS_ZOOM_OUT) == 1, "and passes once closed");
+        ev(BGMT_INFO);
+        check(ev(BGMT_PRESS_ZOOM_IN) == 0 && ev(BGMT_UNPRESS_ZOOM_IN) == 0, "AF point selection: press and release both taken");
+        ev(BGMT_INFO);
+        check(ev(BGMT_TOUCH_1_FINGER) == 0 && ev(BGMT_UNTOUCH_1_FINGER) == 0, "a touch: taken with its release");
+        check(ev(BGMT_UNTOUCH_1_FINGER) == 1, "a later untouch passes");
+        ev(BGMT_INFO);
+        check(ev(BGMT_PRESS_HALFSHUTTER) == 1 && ev(BGMT_PRESS_DOWN) == 1, "the half-press is the exception: it closes and still fires");
+        check(se_stock_index == idx, "none of that changed the film");
+      }
+      /* the progress text: the count is there, and no %% is anywhere near it */
+      { char t[48]; se_stage = "stream"; se_pct = 45; se_waiting = 3;
+        se_progress_text(t, sizeof t);
+        check(strcmp(t, "stream 45%, 3 waiting") == 0, "progress text reads \"%s\"", t);
+        se_waiting = 0; se_progress_text(t, sizeof t);
+        check(strcmp(t, "stream 45%") == 0, "and with nothing queued, \"%s\"", t); }
     }
     check(g_draw_errors == 0, "every draw stayed inside 720x480 (%d draws, %d outside)", g_draws, g_draw_errors);
 

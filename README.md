@@ -65,9 +65,14 @@ Lantern's 700D build first, then copy `ML/modules/soupeng.mo`, the
 `ML/FILM` folder and `ML/SETTINGS/soupeng.en` from a `make card-700d`
 onto the card (see [`src/README.md`](src/README.md)). Soup Engine then
 lives under **Shoot** in Magic Lantern's menu, and the current film is
-shown at the bottom of the shooting screen. To change it quickly, press
-**SET** in shooting mode: a list opens, the **up and down arrows** move
-(the dial stays Canon's, for exposure), SET chooses, Trash cancels.
+shown at the bottom right of the shooting screen. To change it quickly, press
+**INFO** in shooting mode: the film list is the first stop of Canon's
+INFO cycle. The **wheel or the arrows** move, **SET** chooses a film or
+flips the auto switch, Trash cancels, and INFO again moves on to Canon's
+next screen. Outside the open list SET is left to Canon, and the list
+keeps out of Canon's menu, the Q screen and the other settings screens. While the list is open every button is the
+list's and nothing underneath it reacts, except the shutter, which
+closes it and still fires.
 The same list offers **Develop last shot** and an **Auto develop**
 switch, so you can shoot with auto off, judge on the back screen, and
 develop only the frames that deserve it. With auto on, every shot gets

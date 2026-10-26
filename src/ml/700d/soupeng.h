@@ -69,6 +69,8 @@ extern int          se_done, se_failed;    /* this session                  */
 se_err se_develop_preview(const char *cr2_path, const char *out_path,
                           const se_stock *st, int scale, se_result *R);
 void   se_progress_hook(void *ctx, const char *stage, int pct);
+int    se_progress_text(char *buf, size_t cap);   /* "stream 45%, 3 waiting" */
+void   se_count_waiting(void);                    /* se_waiting, read live   */
 int    se_newest_cr2(char *out, size_t cap);
 void   se_out_name(const char *cr2, char *out, size_t cap);
 
@@ -95,8 +97,9 @@ unsigned int se_watch_cbr(unsigned int ctx);     /* once a second         */
 void         se_worker_task(void *arg);          /* for the whole session */
 
 /* -------------------------------------------------------- the screen */
-void         se_draw_label(void);
+void         se_draw_status(void);               /* film, or progress     */
 void         se_screen_tick(void);               /* from the watcher      */
-unsigned int se_key_cbr(unsigned int key);
+unsigned int se_key_cbr(unsigned int key);       /* translated keys     */
+unsigned int se_raw_cbr(se_ctx_t ctx);           /* then the raw events */
 
 #endif

@@ -164,23 +164,48 @@ static int look_rows(void *ctx, const uint8_t *rgb, int nrows, int width)
 /* Progress, drawn by the worker itself. Skipped while Magic Lantern's
  * menu is up: it owns the screen then and would paint over it. */
 
+/*
+ * "stream 45%, 3 waiting": the progress of the frame in hand and the
+ * count behind it, for the shooting screen and the menu. The count is
+ * what says whether the camera may be switched off yet, and roughly how
+ * long until it may: about ten seconds a frame at quarter size, forty at
+ * half, three minutes at full.
+ *
+ * Built in pieces. The first attempt was one format, "%d%%  %d waiting",
+ * and the count came out 0 on the camera every time while the log, with
+ * no %% in its line, had it right: Canon's printf, which is what Magic
+ * Lantern's snprintf and bmp_printf resolve to, does not treat %% the
+ * way C does, and the conversion after it got the wrong argument. So no
+ * format here holds a %% at all; the sign is a character written by hand.
+ */
+int se_progress_text(char *buf, size_t cap)
+{
+    int n = snprintf(buf, cap, "%s %d", se_stage, se_pct);
+    if (n < 0 || n + 1 >= (int)cap) return n;
+    buf[n++] = '%';
+    buf[n] = 0;
+    if (se_waiting)
+        n += snprintf(buf + n, cap - (size_t)n, ", %d waiting", se_waiting);
+    return n;
+}
+
+/* Read live, not once at the start of the frame: shots taken while this
+ * one develops are the ones the count is for. */
+void se_count_waiting(void)
+{
+    se_waiting = se_q_count() > 1 ? se_q_count() - 1 : 0;
+}
+
+/* From the engine, per strip; and from se_develop_preview at its start,
+ * so the line changes the moment a frame begins. The screen is redrawn
+ * at every fifth percent here and once a second by the watcher. */
 void se_progress_hook(void *ctx, const char *stage, int pct)
 {
-    /* Read live, not once at the start of the frame: shots taken while
-     * this one develops are the ones the count is for. */
-    se_waiting = se_q_count() > 1 ? se_q_count() - 1 : 0;
+    se_count_waiting();
     if (pct == se_pct && stage == se_stage) return;
     se_stage = stage; se_pct = pct;
-    if (gui_menu_shown() || ml_shutdown_requested) return;
-    /* "more queued" rather than a number: the number is right in the log
-     * and came out as 0 on the screen every time, and a conversion after
-     * %% is something Magic Lantern's own code never asks Canon's printf
-     * for. A word cannot be wrong. The count is in the log. */
-    if (pct % 5 == 0)
-        bmp_printf(FONT(FONT_MED, COLOR_WHITE, COLOR_BLACK), 10, 440,
-                   "SOUP %s %s %d%%  %s",
-                   se_stocks[se_stock_index].name, stage, pct,
-                   se_waiting ? "more queued" : "           ");
+    if (ml_shutdown_requested) return;
+    if (pct % 5 == 0) se_draw_status();
 }
 
 /*
@@ -269,6 +294,7 @@ se_err se_develop_preview(const char *cr2_path, const char *out_path,
     memset(&rd, 0, sizeof rd);
     memset(R, 0, sizeof *R);
     t0 = get_ms_clock();
+    se_progress_hook(0, "reading", 0);
 
     /* --- locate the preview and read the exposure data ----------------- */
     hdr = fio_malloc(SE_HDR_BYTES);

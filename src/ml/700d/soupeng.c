@@ -294,7 +294,10 @@ static MENU_UPDATE_FUNC(se_film_update)
 static MENU_UPDATE_FUNC(se_develop_update)
 {
     if (se_busy) {
-        MENU_SET_VALUE("%s %d%%%s", se_stage, se_pct, se_waiting ? ", more queued" : "");
+        char text[48];
+        se_count_waiting();
+        se_progress_text(text, sizeof text);      /* "develop 45%, 3 waiting" */
+        MENU_SET_VALUE("%s", text);
     } else if (se_q_count()) {
         MENU_SET_VALUE("%d waiting", se_q_count());
     } else if (se_status[0]) {
@@ -339,12 +342,19 @@ static MENU_SELECT_FUNC(se_rescan_select)
 /* The top-level line shows the chosen film without opening the submenu. */
 static MENU_UPDATE_FUNC(se_top_update)
 {
-    if (se_busy)
-        MENU_SET_VALUE("%s %d%%", se_stage, se_pct);
-    else if (se_nstocks && se_stock_index >= 0 && se_stock_index < se_nstocks)
+    if (se_busy) {
+        char text[48];
+        se_count_waiting();
+        se_progress_text(text, sizeof text);
+        MENU_SET_VALUE("%s", text);
+    } else if (se_nstocks && se_stock_index >= 0 && se_stock_index < se_nstocks)
         MENU_SET_VALUE("%s%s", se_stocks[se_stock_index].name, se_auto ? "" : " (manual)");
     else
         MENU_SET_VALUE("no films");
+    /* Their Advanced Bracket is a few rows up in this same menu and one
+     * SET press turns it on; then every shutter press is a sequence. */
+    if (is_hdr_bracketing_enabled())
+        MENU_SET_WARNING(MENU_WARN_ADVICE, "Advanced Bracket (above) is ON: each shutter press takes several frames.");
 }
 
 static struct menu_entry se_menu[] =
@@ -353,7 +363,7 @@ static struct menu_entry se_menu[] =
         .name           = "Soup Engine",
         .select         = menu_open_submenu,
         .update         = se_top_update,
-        .help           = "Film looks, in the camera. SET in shooting mode opens the film picker (arrows move).",
+        .help           = "Film looks, in the camera. INFO in shooting mode opens the film picker; wheel or arrows move, SET chooses.",
         .help2          = "Films are the .fs files in ML/FILM on the card.",
         .submenu_width  = 710,
         .children       = (struct menu_entry[]) {
@@ -430,7 +440,10 @@ static unsigned int se_module_init(void)
     if (se_nstocks) se_resume_cut();
     task_create("soup_dev", 0x1c, 0x8000, se_worker_task, 0);
 
-    se_logf("engine format %d, %d films, film %s, size %s, auto %s; free: malloc %d KB, AllocateMemory %d KB",
+    /* The build's date and time, so the log says which soupeng.mo ran:
+     * a card that kept an older copy looks exactly like a new bug. */
+    se_logf("soupeng built %s %s; engine format %d, %d films, film %s, size %s, auto %s; free: malloc %d KB, AllocateMemory %d KB",
+            __DATE__, __TIME__,
             SE_STOCK_VERSION, se_nstocks, se_nstocks ? se_stocks[se_stock_index].name : "-",
             se_size_name(), se_auto ? "on" : "off",
             GetFreeMemForMalloc() >> 10, GetFreeMemForAllocateMemory() >> 10);
@@ -452,7 +465,8 @@ MODULE_INFO_END()
 
 MODULE_CBRS_START()
     MODULE_CBR(CBR_SECONDS_CLOCK, se_watch_cbr, 0)
-    MODULE_CBR(CBR_KEYPRESS,      se_key_cbr,   0)
+    MODULE_CBR(CBR_KEYPRESS,      se_key_cbr,   0)   /* in this order: the raw */
+    MODULE_CBR(CBR_KEYPRESS_RAW,  se_raw_cbr,   0)   /* one sees what this passes */
 MODULE_CBRS_END()
 
 MODULE_CONFIGS_START()

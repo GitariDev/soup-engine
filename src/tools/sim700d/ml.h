@@ -113,17 +113,57 @@ int    bmp_printf(uint32_t font, int x, int y, const char *fmt, ...);
 void   bmp_fill(uint8_t color, int x, int y, int w, int h);
 void   bmp_draw_rect(int color, int x, int y, int w, int h);
 void   NotifyBox(int timeout, char *fmt, ...);
+#define COLOR_RED   0x08
+#define FONT_ALIGN_RIGHT 0x02000000   /* x is the text's right edge */
 int    gui_menu_shown(void);
 int    display_is_on(void);
 int    is_play_mode(void);
 void   redraw(void);
 extern int lv;
+extern int gui_state;                 /* Canon's: 0 is the idle shooting screen */
+#define GUISTATE_IDLE 0
+int    get_gui_mode(void);            /* Canon's dialog: 0 is none */
+int    is_hdr_bracketing_enabled(void);
 struct lens_info_sim { unsigned job_state; };
 extern struct lens_info_sim lens_info;
 
 /* -------------------------------------------------------------- keys */
+/* the 700D's raw button codes, from Magic Lantern's platform/700D.115/gui.h */
+#define BGMT_WHEEL_UP          0
+#define BGMT_WHEEL_DOWN        1
+#define BGMT_PRESS_SET         4
+#define BGMT_UNPRESS_SET       5
+#define BGMT_MENU              6
+#define BGMT_INFO              7
+#define BGMT_PLAY              0xB
+#define BGMT_TRASH             0xD
+#define BGMT_PRESS_ZOOM_IN     0xe
+#define BGMT_UNPRESS_ZOOM_IN   0xf
+#define BGMT_PRESS_ZOOM_OUT    0x10
+#define BGMT_UNPRESS_ZOOM_OUT  0x11
+#define BGMT_Q                 0x1D
+#define BGMT_LV                0x1E
+#define BGMT_PRESS_RIGHT       0x24
+#define BGMT_UNPRESS_RIGHT     0x25
+#define BGMT_PRESS_LEFT        0x26
+#define BGMT_UNPRESS_LEFT      0x27
+#define BGMT_PRESS_UP          0x28
+#define BGMT_UNPRESS_UP        0x29
+#define BGMT_PRESS_DOWN        0x2a
+#define BGMT_UNPRESS_DOWN      0x2b
+#define BGMT_PRESS_HALFSHUTTER 0x4e
+#define GMT_OLC_INFO_CHANGED   0x67
+#define BGMT_TOUCH_1_FINGER    0x6b
+#define BGMT_UNTOUCH_1_FINGER  0x6c
+#define BGMT_TOUCH_2_FINGER    0x72
+#define BGMT_UNTOUCH_2_FINGER  0x73
+struct event { int type; int param; void *obj; int arg; };
+typedef uintptr_t se_ctx_t;           /* a struct event * fits; see ml/700d/ml.h */
+
 #define MODULE_KEY_PRESS_HALFSHUTTER  1
+#define MODULE_KEY_UNPRESS_HALFSHUTTER 2
 #define MODULE_KEY_PRESS_FULLSHUTTER  3
+#define MODULE_KEY_UNPRESS_FULLSHUTTER 4
 #define MODULE_KEY_WHEEL_UP           5
 #define MODULE_KEY_WHEEL_DOWN         6
 #define MODULE_KEY_WHEEL_LEFT         7
@@ -135,11 +175,18 @@ extern struct lens_info_sim lens_info;
 #define MODULE_KEY_PRESS_LEFT        16
 #define MODULE_KEY_PRESS_DOWN        19
 #define MODULE_KEY_UNPRESS_UDLR      20
+#define MODULE_KEY_PRESS_ZOOMIN      21
 #define MODULE_KEY_MENU              22
 #define MODULE_KEY_INFO              23
 #define MODULE_KEY_PLAY              24
 #define MODULE_KEY_TRASH             25
+#define MODULE_KEY_REC               27
+#define MODULE_KEY_LV                28
 #define MODULE_KEY_Q                 29
+#define MODULE_KEY_TOUCH_1_FINGER    35
+#define MODULE_KEY_UNTOUCH_1_FINGER  36
+#define MODULE_KEY_TOUCH_2_FINGER    37
+#define MODULE_KEY_UNTOUCH_2_FINGER  38
 
 /* -------------------------------------------------------------- menu */
 struct menu_display_info { char value[36]; char help[80]; char rinfo[36]; int warning_level; };
@@ -156,6 +203,7 @@ struct menu_entry {
 #define MENU_SET_HELP(...)    snprintf(info->help,  sizeof info->help,  __VA_ARGS__)
 #define MENU_SET_RINFO(...)   snprintf(info->rinfo, sizeof info->rinfo, __VA_ARGS__)
 #define MENU_SET_WARNING(level, ...) do { info->warning_level = (level); } while (0)
+#define MENU_WARN_ADVICE      2
 #define MENU_WARN_NOT_WORKING 3
 #define MENU_EOL { .priv = (void *)-1 }
 #define CHOICES(...) (const char *[]) { __VA_ARGS__ }
@@ -173,15 +221,17 @@ MENU_SELECT_FUNC(menu_open_submenu);
 #define CONFIG_INT(name, var, value) int var = value
 #define CBR_SECONDS_CLOCK 5
 #define CBR_KEYPRESS      7
+#define CBR_KEYPRESS_RAW  8
 #define MODULE_INFO_START()        unsigned (*sim_module_init)(void), (*sim_module_deinit)(void); \
                                    static void __attribute__((constructor)) sim_info_ctor(void) {
 #define MODULE_INIT(f)             sim_module_init = f;
 #define MODULE_DEINIT(f)           sim_module_deinit = f;
 #define MODULE_INFO_END()          }
-#define MODULE_CBRS_START()        unsigned (*sim_cbr_clock)(unsigned), (*sim_cbr_key)(unsigned); \
+#define MODULE_CBRS_START()        unsigned (*sim_cbr_clock)(unsigned), (*sim_cbr_key)(unsigned), (*sim_cbr_raw)(se_ctx_t); \
                                    static void __attribute__((constructor)) sim_cbrs_ctor(void) {
-#define MODULE_CBR(type, f, ctx)   if ((type) == CBR_SECONDS_CLOCK) sim_cbr_clock = f; \
-                                   else if ((type) == CBR_KEYPRESS) sim_cbr_key = f;
+#define MODULE_CBR(type, f, ctx)   if ((type) == CBR_SECONDS_CLOCK) sim_cbr_clock = (unsigned (*)(unsigned))(f); \
+                                   else if ((type) == CBR_KEYPRESS) sim_cbr_key = (unsigned (*)(unsigned))(f); \
+                                   else if ((type) == CBR_KEYPRESS_RAW) sim_cbr_raw = (unsigned (*)(se_ctx_t))(f);
 #define MODULE_CBRS_END()          }
 #define MODULE_CONFIGS_START()     static void __attribute__((unused)) sim_configs_noop(void) {
 #define MODULE_CONFIG(v)           (void)v;
