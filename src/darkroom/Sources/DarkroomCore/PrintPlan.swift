@@ -91,8 +91,8 @@ public enum Destination {
 public struct PrintItem: Sendable, Equatable {
     public let frame: Frame
     public let film: Film
-    /// Unique within the batch. The print step still has the final word against
-    /// the disk, with an exclusive rename.
+    /// Plain, and two frames of one stem ask for the same name: the print step's
+    /// exclusive rename alone resolves a clash, within a batch or with the disk.
     public let requestedName: String
 }
 
@@ -111,8 +111,6 @@ public struct PrintPlan: Sendable, Equatable {
                 home: URL = FileManager.default.homeDirectoryForCurrentUser) {
         self.destination = destination
         var seen = Set<String>()
-        var used = Set<String>()
-        var next: [String: Int] = [:]
         var items: [PrintItem] = []
         var waiting: [Frame] = []
         var unreadable: [Frame] = []
@@ -125,14 +123,8 @@ public struct PrintPlan: Sendable, Equatable {
                 waiting.append(frame)
                 continue
             }
-            let base = PrintName.base(stem: frame.file.stem, film: film.name)
-            var name = base + ".JPG"
-            while !used.insert(name.lowercased()).inserted {        // APFS and FAT ignore case
-                let n = next[base.lowercased(), default: 2]
-                next[base.lowercased()] = n + 1
-                name = "\(base)-\(n).JPG"
-            }
-            items.append(PrintItem(frame: frame, film: film, requestedName: name))
+            items.append(PrintItem(frame: frame, film: film,
+                                   requestedName: PrintName.requested(stem: frame.file.stem, film: film.name)))
         }
         self.items = items
         self.waiting = waiting

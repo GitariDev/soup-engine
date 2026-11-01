@@ -37,7 +37,7 @@ final class PrintPlanTests: XCTestCase {
         XCTAssertEqual(all.summary, "Print 1 of 1 to ~/Pictures/Soup Prints")
     }
 
-    func testNamesAreUniqueInABatchIgnoringCase() throws {
+    func testNamesStayPlainInABatch() throws {
         let r = try Rig()
         try r.cr2("IMG_0001.CR2", folder: "DCIM/100CANON")
         try r.cr2("IMG_0001.CR2", folder: "DCIM/101CANON")
@@ -47,7 +47,8 @@ final class PrintPlanTests: XCTestCase {
         for f in try r.frames() { r.record.choose(try r.can("VELVIA"), for: f) }
         let names = PrintPlan(frames: try r.frames(), destination: dest, home: home).items.map(\.requestedName)
         XCTAssertEqual(names.count, 5)
-        XCTAssertEqual(Set(names.map { $0.lowercased() }).count, 5, "\(names)")
+        XCTAssertEqual(names.filter { $0 == "IMG_0001_VELVIA.JPG" }.count, 3, "\(names)")
+        XCTAssertFalse(names.contains { $0.contains("VELVIA-") }, "\(names)")
     }
 
     func testHoldsSayWhyEachFrameWaits() throws {

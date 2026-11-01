@@ -203,6 +203,17 @@ final class DarkroomEngineTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: out.path))
     }
 
+    func testABatchAskingOneNameTwiceTakesOneSuffixEach() async throws {
+        let out = try folder()
+        let dark = room()
+        for _ in 0..<2 {
+            async let a = dark.print(landscape, film: nil, to: out, name: "x.JPG", half: true)
+            async let b = dark.print(landscape, film: nil, to: out, name: "x.JPG", half: true)
+            _ = try await (a, b)
+        }
+        XCTAssertEqual(try names(out), ["x-2.JPG", "x-3.JPG", "x-4.JPG", "x.JPG"])
+    }
+
     func testRefusesACard() async throws {
         let dcim = try folder("DCIM/100CANON")
         do {
