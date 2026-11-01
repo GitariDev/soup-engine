@@ -185,6 +185,7 @@ enum Driver {
         if let f = bench.current {
             out["frame"] = f.name
             out["state"] = f.state.rawValue
+            out["word"] = f.stateWord
             out["shotOn"] = f.shotOnFilm?.film ?? ""
             out["developing"] = f.developingFilm ?? ""
             out["developed"] = f.isDeveloped

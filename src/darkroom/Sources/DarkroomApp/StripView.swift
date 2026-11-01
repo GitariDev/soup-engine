@@ -100,13 +100,6 @@ struct StripView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                .overlay(alignment: .topTrailing) {
-                    if !frame.isDeveloped {
-                        Circle().strokeBorder(Theme.soft, lineWidth: 1).background(Circle().fill(Color.black.opacity(0.5)))
-                            .frame(width: 7, height: 7).padding(3)
-                            .help("Not developed")
-                    }
-                }
                 .frame(width: 106, height: 72)
                 .clipped()
                 HStack(spacing: 2) {

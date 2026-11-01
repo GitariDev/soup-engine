@@ -89,3 +89,7 @@ can GOLD
 dump 10-can-pick
 settle
 dump 10b-can-arrived
+
+select IMG_4010
+wait 100
+dump 11-no-can

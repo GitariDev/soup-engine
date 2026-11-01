@@ -149,7 +149,7 @@ extension Frame {
     var stateWord: String {
         if !isReadable { return "UNREADABLE" }
         switch state {
-        case .shotOn: return "SHOT ON"
+        case .shotOn: return otherwiseFilm == nil ? "NO CAN" : "SHOT ON"
         case .yourChoice: return "YOUR CHOICE"
         case .printed: return "PRINTED"
         case .noRecord: return "NO RECORD"
@@ -159,7 +159,7 @@ extension Frame {
     var stateColor: Color {
         if !isReadable { return Theme.warn }
         switch state {
-        case .shotOn: return Theme.accent
+        case .shotOn: return otherwiseFilm == nil ? Theme.dim : Theme.accent
         case .yourChoice: return Theme.blue
         case .printed: return Theme.green
         case .noRecord: return Theme.dim

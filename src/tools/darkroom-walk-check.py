@@ -70,6 +70,10 @@ for label in ("3-your-choice", "4-no-record", "5-printed"):
     if button(label) is None or button(label) != button("2-shot-on"):
         bad.append(f"Print moved: {button('2-shot-on')} to {button(label)} at {label}")
 
+need("11-no-can", "state", "shotOn")
+need("11-no-can", "word", "NO CAN")
+need("2-shot-on", "word", "SHOT ON")
+
 prints = open(sys.argv[2]).read().split()
 if len(prints) < 2:
     bad.append(f"expected prints, found {prints}")
