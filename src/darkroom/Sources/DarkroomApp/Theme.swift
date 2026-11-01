@@ -195,8 +195,8 @@ extension Filter {
         case .all: return "No frames here."
         case .shotOn: return "No frame is waiting on the film it was shot on."
         case .printed: return "Nothing printed yet."
-        case .yourChoice: return "No choices yet. Pick a can for any frame."
-        case .noRecord: return "Every frame has its film on record."
+        case .yourChoice: return "No choice is waiting. Pick a can for any frame."
+        case .noRecord: return "No frame waits for a film."
         case .notDeveloped: return "Every frame here is developed."
         }
     }

@@ -22,6 +22,7 @@ echo "ok   fixture card"
 make darkroom 2>&1 | grep -q "Soup Darkroom.app" || fail "app bundle"
 sh tools/darkroom-walk.sh > "$LINK/w" 2>&1 || { cat "$LINK/w"; fail "walk"; }
 python3 -I tools/darkroom-walk-check.py out/walk/log.jsonl out/walk/prints.txt || fail "walk assertions"
+python3 -I tools/darkroom-strip-check.py out/walk/11-narrowed.png > /dev/null || fail "the strip is blank after narrowing a tab"
 echo "ok   walk"
 git -C .. ls-files -o --exclude-standard | grep -iE '\.(cr2|jpe?g)$' && fail "a photo is about to be tracked"
 git -C .. ls-files | grep -iE '\.(cr2)$' && fail "a CR2 is tracked"

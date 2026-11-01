@@ -93,3 +93,12 @@ dump 10b-can-arrived
 select IMG_4010
 wait 100
 dump 11-no-can
+
+# Narrowing a tab from far along the strip must still show its frames.
+filter all
+select IMG_3998
+settle
+filter printed
+wait 900
+shot 11-narrowed
+dump 11-narrowed

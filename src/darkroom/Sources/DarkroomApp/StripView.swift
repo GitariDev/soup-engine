@@ -68,6 +68,9 @@ struct StripView: View {
                         }
                         .padding(.horizontal, 8)
                     }
+                    // A narrower list under an old offset draws nothing, and
+                    // scrolling to a frame cannot fix what is not laid out.
+                    .id(filter)
                     .onChange(of: selected) { old, id in
                         guard let id else { return }
                         proxy.scrollTo(id, anchor: anchor(from: old, to: id))
