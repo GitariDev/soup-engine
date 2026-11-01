@@ -58,8 +58,7 @@ struct CanView: View {
         let style = Self.styles[Film.key(film.name)] ?? .solid
 
         var lead = Path()
-        lead.move(to: CGPoint(x: 100, y: 58))
-        lead.addLines([CGPoint(x: 136, y: 58), CGPoint(x: 146, y: 66), CGPoint(x: 158, y: 66),
+        lead.addLines([CGPoint(x: 100, y: 58), CGPoint(x: 136, y: 58), CGPoint(x: 146, y: 66), CGPoint(x: 158, y: 66),
                        CGPoint(x: 158, y: 126), CGPoint(x: 100, y: 126)])
         lead.closeSubpath()
         ctx.fill(lead, with: across(Self.leader, 100, 58))
