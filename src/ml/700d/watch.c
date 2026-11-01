@@ -8,6 +8,11 @@
  * Canon reports itself idle and the raw's size has stopped changing,
  * because the counter can move before the file is finished.
  *
+ * The same look keeps the roll: ML/DATA/SOUPROLL.TXT, one line for each run
+ * of frames, saying which film they were shot on, for the desktop darkroom.
+ * It sees every frame, auto on or off, and the camera never reads it back.
+ * doc/darkroom/PLAN.md has the format.
+ *
  * One worker task drains the queue. It is started once, at init, and
  * loops until power-off; it does not touch the card once shutdown has
  * been requested, because a task holding the card open is a shutdown
@@ -106,6 +111,162 @@ void se_resume_cut(void)
     free(file);
 }
 
+/* ------------------------------------------------------------- the roll */
+
+#define SE_ROLL_FILE  "ML/DATA/SOUPROLL.TXT"
+#define SE_ROLL_LOOKS 5                    /* the longest a range waits for idle */
+
+/*
+ * The last frame the roll has seen. Its own, not se_last_file_number: that
+ * one stops short of the counter when the queue is full, and reading it
+ * here would count those frames a second time.
+ */
+static int se_seen_no = -1, se_seen_folder, se_seen_ms;
+
+/*
+ * The frames not on the card yet: one range, on one film. The film and the
+ * roll are kept as they were when it opened, because by the time the line
+ * goes out the camera may be on another of each.
+ */
+static struct {
+    int       count;                       /* frames by the counter; 0, no range */
+    int       roll, looks;                 /* looks since the one that opened it */
+    int       from_folder, from_no, to_folder, to_no;
+    int       ms_before, ms_last;          /* the look before the first frame,
+                                              the look that saw the last       */
+    struct tm clock;                       /* the camera's, at that last look  */
+    uint32_t  id;
+    char      name[SE_STOCK_NAME];
+} se_rec;
+
+static int se_rec_failed;                  /* said so in the log                */
+static int se_rec_torn;                    /* the file ends in part of a line   */
+
+/*
+ * Made here, at init, while nothing is shooting, and only ever opened after
+ * that. FIO_CreateFileOrAppend will not do: when its open fails it falls
+ * back to FIO_CreateFile, which deletes the file first, so one open refused
+ * while Canon had the card busy would lose the whole roll.
+ */
+void se_roll_init(void)
+{
+    uint32_t sz;
+    FILE *f;
+    if (FIO_GetFileSize(SE_ROLL_FILE, &sz) == 0) return;
+    f = FIO_CreateFile(SE_ROLL_FILE);
+    if (f) FIO_CloseFile(f);
+}
+
+/*
+ * One line. A card that will not open keeps the range for the next look,
+ * unless `must` says it has to go now. Once opened the range is gone whatever
+ * happens: those frames become No record, which is the safe failure, and the
+ * next range gets its own attempt. Part of a line left behind gets a newline
+ * ahead of the next one, or it would take that one down with it.
+ */
+static void se_roll_write(int must)
+{
+    char line[192];
+    struct tm *t = &se_rec.clock;
+    FILE *f;
+    int n, wrote = -1;
+
+    if (ml_shutdown_requested) return;
+
+    f = FIO_OpenFile(SE_ROLL_FILE, O_RDWR | O_SYNC);
+    if (f && FIO_SeekSkipFile(f, 0, SEEK_END) < 0) { FIO_CloseFile(f); f = 0; }
+    if (!f && !must) {
+        if (!se_rec_failed) { se_rec_failed = 1; se_logf("cannot open %s", SE_ROLL_FILE); }
+        return;
+    }
+
+    snprintf(line, sizeof line, "%sR1 %d %d %d %d %d %d %d %d %d %d %d %d %d %x %s\n",
+             se_rec_torn ? "\n" : "", se_rec.roll,
+             se_rec.from_folder, se_rec.from_no, se_rec.to_folder, se_rec.to_no, se_rec.count,
+             t->tm_year + 1900, t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec,
+             (se_rec.ms_last - se_rec.ms_before + 999) / 1000,    /* up: it bounds a window */
+             (unsigned int)se_rec.id, se_rec.name);
+    n = (int)strlen(line);
+
+    if (f) {
+        wrote = FIO_WriteFile(f, line, (size_t)n);
+        FIO_CloseFile(f);
+    }
+    se_rec_torn = wrote > 0 && wrote < n;
+    if (wrote != n && !se_rec_failed) {
+        se_rec_failed = 1;
+        se_logf("cannot write %s", SE_ROLL_FILE);
+    }
+    se_rec.count = 0;
+}
+
+/*
+ * Every look, and first thing in it. The calendar is a question for the
+ * RTC, so it is asked only at a look that saw frames; that is also when
+ * the answer is the line's, because the line may go out five looks later
+ * and the time it carries is the time of its last frame. Any move of the
+ * counter is frames: a jump costs one line that matches nothing.
+ */
+static void se_roll_look(int num, int folder)
+{
+    int now = get_ms_clock();
+    int ahead;
+
+    /* the first look is the baseline, as it is for the queue */
+    if (se_seen_no < 0) {
+        se_seen_no = num;
+        se_seen_folder = folder;
+        se_seen_ms = now;
+        return;
+    }
+
+    if (se_rec.count) se_rec.looks++;
+    ahead = (num - se_seen_no + 9999) % 9999;
+    if (ahead && se_nstocks) {
+        int s = se_stock_index >= 0 && se_stock_index < se_nstocks ? se_stock_index : 0;
+        uint32_t id = se_name_id(se_stocks[s].name);
+
+        if (se_rec.count && id != se_rec.id) se_roll_write(1);
+        if (!se_rec.count) {
+            se_rec.roll = se_roll_on ? se_roll_no : 0;
+            se_rec.looks = 0;
+            /* A lone frame in a new folder is known to be in it. Of several,
+             * the first may still be in the old one. */
+            se_rec.from_folder = ahead == 1 ? folder : se_seen_folder;
+            se_rec.from_no = se_seen_no >= 9999 ? 1 : se_seen_no + 1;
+            se_rec.ms_before = se_seen_ms;
+            se_rec.id = id;
+            snprintf(se_rec.name, sizeof se_rec.name, "%s", se_stocks[s].name);
+        }
+        se_rec.count += ahead;
+        se_rec.to_folder = folder;
+        se_rec.to_no = num;
+        se_rec.ms_last = now;
+        LoadCalendarFromRTC(&se_rec.clock);
+    }
+    /* followed with no films too: those frames are not news after a rescan */
+    se_seen_no = num;
+    se_seen_folder = folder;
+    se_seen_ms = now;
+
+    /* never during a develop: see the log, in soupeng.c, for what the 5D
+     * learnt. The worker gives the line its moment between frames. */
+    if (se_rec.count && !se_busy && (lens_info.job_state == 0 || se_rec.looks >= SE_ROLL_LOOKS))
+        se_roll_write(0);
+}
+
+/*
+ * After a frame, from the worker, while nothing is using the card. With a
+ * queue behind it the gap between frames is shorter than a look, so the
+ * watcher would never see one: this holds the next frame back for the look
+ * that writes the line. Only the watcher ever touches the range.
+ */
+static void se_roll_settle(void)
+{
+    int i;
+    for (i = 0; i < 3 && se_rec.count && !ml_shutdown_requested; i++) msleep(500);
+}
+
 /* ---------------------------------------------------------- the watcher */
 
 static int se_last_file_number = -1;
@@ -127,6 +288,8 @@ unsigned int se_watch_cbr(unsigned int ctx)
     struct card_info *card = get_shooting_card();
     int num = card->file_number, folder = card->folder_number;
     int i;
+
+    se_roll_look(num, folder);
 
     /* the first look is the baseline: nothing already on the card is new */
     if (se_last_file_number < 0) {
@@ -271,6 +434,7 @@ void se_worker_task(void *arg)
             if (j->ready > 0) {
                 se_develop_job(j);
                 se_q_head++;
+                se_roll_settle();
             } else if (j->ready < 0) {
                 se_q_head++;
             } else {

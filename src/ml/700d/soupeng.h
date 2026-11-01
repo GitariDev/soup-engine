@@ -100,6 +100,7 @@ int     se_pending(void);                           /* queued, and shot but not 
 se_job *se_q_push(const char *path, int force);     /* once per path */
 void    se_resume_cut(void);                        /* at power-on   */
 
+void         se_roll_init(void);                 /* the roll file, at init */
 unsigned int se_watch_cbr(unsigned int ctx);     /* once a second         */
 void         se_worker_task(void *arg);          /* for the whole session */
 

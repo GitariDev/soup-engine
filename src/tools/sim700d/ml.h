@@ -57,10 +57,14 @@ typedef struct sim_file FILE;
 #ifndef O_RDONLY
 #define O_RDONLY 0
 #endif
+#ifndef O_RDWR
+#define O_RDWR   2
+#endif
 #ifndef O_SYNC
 #define O_SYNC   010000
 #endif
 #define SEEK_SET 0
+#define SEEK_END 2
 #define FIO_MAX_PATH_LENGTH 0x80
 #define ATTR_DIRECTORY 0x10
 #define IS_ERROR(p) (1 & (uintptr_t)(p))

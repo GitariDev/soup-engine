@@ -34,8 +34,10 @@
  *      memory the plain list opens instead;
  *   8. the queue the screen shows: a frame keeps the film and size it was
  *      shot on, and a burst longer than the queue is not lost;
- *   9. power-off mid-frame: the worker stops within a row and the
- *      partial file is gone.
+ *   9. the roll: what the module appended to ML/DATA/SOUPROLL.TXT is read
+ *      back from the card, parsed, and held to what was shot;
+ *  10. power-off mid-frame: the worker stops within a row, the partial
+ *      file is gone, and the roll is not touched any more.
  *
  * Every fake is deliberately minimal and every check is a line of
  * output; the script greps for "FAIL". Exit status says the same.
@@ -110,16 +112,29 @@ static const char *host_path(const char *p, char *buf, size_t n)
 }
 
 /* --------------------------------------------------------------- FIO */
-struct sim_file { int fd; };
+struct sim_file { int fd, roll; };
+
+/* The roll's way to the card, watched: the name it asked for, how often it
+ * opened, and a switch for the card going bad (1 no open, 2 half a line). */
+static char g_roll_name[64];
+static int  g_roll_opens, g_roll_bad_card, g_mkdir_data;
 struct fio_file { struct file_info fi; };
 struct fio_dirent { DIR *d; };
 
 struct sim_file *FIO_OpenFile(const char *name, unsigned mode)
 {
-    char b[1024]; int fd = open(host_path(name, b, sizeof b), O_RDONLY);
+    char b[1024]; const char *hp = host_path(name, b, sizeof b);
+    const char *slash = strrchr(hp, '/');
+    int writing = (mode & 3) == O_RDWR, roll = writing && strstr(name, "SOUPROLL") != 0, fd;
     struct sim_file *f;
+    if (roll) {
+        g_roll_opens++;
+        snprintf(g_roll_name, sizeof g_roll_name, "%s", slash ? slash + 1 : hp);
+        if (g_roll_bad_card == 1) return 0;
+    }
+    fd = open(hp, writing ? O_RDWR : O_RDONLY);
     if (fd < 0) return 0;
-    f = calloc(1, sizeof *f); f->fd = fd; return f;
+    f = calloc(1, sizeof *f); f->fd = fd; f->roll = roll; return f;
 }
 struct sim_file *FIO_CreateFile(const char *name)
 {
@@ -134,8 +149,11 @@ struct sim_file *FIO_CreateFile(const char *name)
 }
 struct sim_file *FIO_CreateFileOrAppend(const char *name)
 {
-    char b[1024]; int fd = open(host_path(name, b, sizeof b), O_WRONLY | O_CREAT | O_APPEND, 0644);
-    struct sim_file *f;
+    char b[1024]; const char *hp = host_path(name, b, sizeof b);
+    const char *slash = strrchr(hp, '/');
+    struct sim_file *f; int fd;
+    if (slash && strlen(slash + 1) > 12) return 0;      /* 8.3, as above */
+    fd = open(hp, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd < 0) return 0;
     f = calloc(1, sizeof *f); f->fd = fd; return f;
 }
@@ -145,7 +163,11 @@ int FIO_ReadFile(struct sim_file *f, void *buf, size_t n)
     if (g_short_reads && n > 4096 && (rand() & 3) == 0) n = n / 2 + 1;
     return (int)read(f->fd, buf, n);
 }
-int FIO_WriteFile(struct sim_file *f, const void *buf, size_t n) { return (int)write(f->fd, buf, n); }
+int FIO_WriteFile(struct sim_file *f, const void *buf, size_t n)
+{
+    if (f->roll && g_roll_bad_card == 2) n /= 2;
+    return (int)write(f->fd, buf, n);
+}
 void FIO_CloseFile(struct sim_file *f) { if (f) { close(f->fd); free(f); } }
 int FIO_GetFileSize(const char *name, uint32_t *size)
 {
@@ -211,7 +233,13 @@ int GetFreeMemForAllocateMemory(void) { return (int)(FIO_POOL - g_fio_used); }
 
 /* ------------------------------------------------------------- tasks */
 void msleep(int ms) { usleep((useconds_t)ms * 1000); }
-int get_ms_clock(void) { struct timeval t; gettimeofday(&t, 0); return (int)(t.tv_sec * 1000 + t.tv_usec / 1000); }
+static int g_ms_fixed;                            /* set: the clock is look()'s, exact */
+int get_ms_clock(void)
+{
+    struct timeval t;
+    if (g_ms_fixed) return g_ms_fixed;
+    gettimeofday(&t, 0); return (int)(t.tv_sec * 1000 + t.tv_usec / 1000);
+}
 static pthread_t g_ui_thread;
 static void *thread_entry(void *arg) { void (*fn)(void *) = ((void **)arg)[0]; fn(((void **)arg)[1]); return 0; }
 static pthread_t g_worker;
@@ -290,12 +318,24 @@ const char *lens_format_shutter(int raw) { return "1/125"; }
 const char *lens_format_iso(int raw) { return "400"; }
 static int g_faked;
 void fake_simple_button(int code) { g_faked = code; }
-int FIO_CreateDirectory(const char *name) { char b[1024]; host_path(name, b, sizeof b); return mkdir(b, 0777); }
+int FIO_CreateDirectory(const char *name)
+{
+    char b[1024]; host_path(name, b, sizeof b);
+    if (strcmp(name, "ML/DATA") == 0) g_mkdir_data = 1;
+    return mkdir(b, 0777);
+}
 static int g_idle_flag;
 void bmp_draw_to_idle(int value) { g_idle_flag = value; }
 void canon_gui_disable_front_buffer(void) { g_front_off = 1; }
 void canon_gui_enable_front_buffer(int also_redraw) { g_front_off = 0; }
-void LoadCalendarFromRTC(struct tm *tm) { tm->tm_hour = 16; tm->tm_min = 47; }
+/* Field by field: the module's struct tm is shorter than this file's. */
+static int g_rtc_reads, g_rtc_sec = 5;
+void LoadCalendarFromRTC(struct tm *tm)
+{
+    tm->tm_year = 126; tm->tm_mon = 10; tm->tm_mday = 1;   /* 1 November 2026 */
+    tm->tm_hour = 16; tm->tm_min = 47; tm->tm_sec = g_rtc_sec;
+    g_rtc_reads++;
+}
 
 /* the screen as a viewer would see it, through the palette */
 static void dump(const char *name)
@@ -382,10 +422,62 @@ static void shoot(int number, int delay_ticks, const char *from)
     lens_info.job_state = 0;
 }
 
+/* ---------------------------------------------------------- the roll */
+typedef struct {
+    int roll, from_folder, from_no, to_folder, to_no, count, Y, M, D, h, mi, s, span;
+    unsigned id;
+    char film[32];
+} sim_rec;
+
+#define SIM_RECS 128
+static sim_rec g_rec[SIM_RECS];
+static int     g_rec_bad;                  /* lines that were not a whole record */
+
+static long roll_size(void)
+{
+    char b[1024]; struct stat st;
+    snprintf(b, sizeof b, "%s/ML/DATA/SOUPROLL.TXT", g_card);
+    return stat(b, &st) == 0 ? (long)st.st_size : 0;
+}
+
+/* What was appended since `from`, parsed into g_rec: the number of records. */
+static int roll_read(long from)
+{
+    char b[1024], line[256];
+    FILE *f;
+    int n = 0;
+    g_rec_bad = 0;
+    snprintf(b, sizeof b, "%s/ML/DATA/SOUPROLL.TXT", g_card);
+    f = fopen(b, "rb");
+    if (!f) return 0;
+    fseek(f, from, SEEK_SET);
+    while (fgets(line, sizeof line, f)) {
+        sim_rec r; int len = (int)strlen(line), at = 0;
+        memset(&r, 0, sizeof r);
+        if (len < 2 || line[len - 1] != '\n' ||
+            sscanf(line, "R1 %d %d %d %d %d %d %d %d %d %d %d %d %d %x %n", &r.roll, &r.from_folder, &r.from_no,
+                   &r.to_folder, &r.to_no, &r.count, &r.Y, &r.M, &r.D, &r.h, &r.mi, &r.s, &r.span, &r.id, &at) != 14 ||
+            !at || at >= len - 1 || len - 1 - at >= (int)sizeof r.film) { g_rec_bad++; continue; }
+        memcpy(r.film, line + at, (size_t)(len - 1 - at));
+        if (se_name_id(r.film) != r.id) { g_rec_bad++; continue; }
+        if (n < SIM_RECS) g_rec[n] = r;
+        n++;
+    }
+    fclose(f);
+    return n;
+}
+
+/* a look, a second after the last one */
+static void look(void) { g_ms_fixed += 1000; g_rtc_sec = (g_rtc_sec + 1) % 60; tick(1); }
+static void counter(int folder, int number) { g_shoot_card.folder_number = folder; g_shoot_card.file_number = number; }
+/* frames that will never appear: the queue gives each up after thirty looks */
+static void drain(void) { int t = 0; while ((se_pending() || se_busy) && t++ < 3000) { tick(1); usleep(2000); } }
+
 int main(int argc, char **argv)
 {
     char sample[1024];
     const char *expect;
+    long roll_start;
     if (argc < 3) { fprintf(stderr, "usage: sim700d <card dir> <expected FLM jpg>\n"); return 2; }
     snprintf(g_card, sizeof g_card, "%s", argv[1]);
     snprintf(g_dcim, sizeof g_dcim, "B:/DCIM/100CANON");
@@ -396,6 +488,7 @@ int main(int argc, char **argv)
     sim_pal_init();
 
     printf("sim700d: card=%s short_reads=%s\n", g_card, g_short_reads ? "on" : "off");
+    roll_start = roll_size();                              /* a second run shares the card */
 
     /* 1. init -- with a frame the power cut off last time: its raw is
      * there and its output is empty */
@@ -827,7 +920,244 @@ int main(int argc, char **argv)
       check(se_pending() == 0, "nor one that went backwards");
     }
 
-    /* 9. power-off mid-frame */
+    /* 9. the roll */
+    {
+      extern int se_roll_on, se_roll_no, se_roll_shot;
+      extern void se_log_flush(void);
+      const char *dot;
+      long mark, torn;
+      int n, reads, opens, base, shots, stocks = se_nstocks, film_a = 3, film_b = 5;
+
+      #define ROLL_FROM(m) do { n = roll_read(m); check(g_rec_bad == 0, "every line appended is a whole record"); } while (0)
+      #define FILM_IS(i, st) (strcmp(g_rec[i].film, se_stocks[st].name) == 0 && g_rec[i].id == se_name_id(se_stocks[st].name))
+
+      /* the frame on the card at power-on was the baseline, not a shot */
+      ROLL_FROM(roll_start);
+      check(n >= 1 && g_rec[0].from_no == 101 && g_rec[0].to_no == 101 && g_rec[0].count == 1,
+            "the first look was the baseline: the first line is frame 101 (%d %d)", g_rec[0].from_no, g_rec[0].to_no);
+
+      wait_idle(60); se_auto = 0; se_stock_index = film_a; g_ms_fixed = 1000;
+      counter(100, 500); look();
+
+      /* the name, and that it holds on the card */
+      check(exists("ML/DATA/SOUPROLL.TXT"), "the roll is at ML/DATA/SOUPROLL.TXT");
+      check(g_mkdir_data, "and init makes sure of ML/DATA");
+      dot = strchr(g_roll_name, '.');
+      { const char *c; int upper = 1;
+        for (c = g_roll_name; *c; c++) if ((*c >= 'a' && *c <= 'z') || *c == ' ') upper = 0;
+        check(dot && dot - g_roll_name >= 1 && dot - g_roll_name <= 8 && strlen(dot + 1) <= 3 && strchr(dot + 1, '.') == 0 && upper,
+              "%s is an 8.3 name", g_roll_name); }
+
+      /* an ordinary look costs nothing */
+      mark = roll_size(); reads = g_rtc_reads; opens = g_roll_opens;
+      look(); look(); look();
+      check(roll_size() == mark && g_roll_opens == opens, "a look with no frame writes nothing");
+      check(g_rtc_reads == reads, "and does not ask the RTC (%d)", g_rtc_reads - reads);
+
+      /* a single shot, every field */
+      counter(100, 501); look();
+      ROLL_FROM(mark);
+      check(n == 1, "a single shot is one line (%d)", n);
+      check(g_rec[0].roll == 0 && g_rec[0].from_folder == 100 && g_rec[0].from_no == 501 && g_rec[0].to_folder == 100 &&
+            g_rec[0].to_no == 501 && g_rec[0].count == 1, "with the right frame, roll 0 with the roll off");
+      check(g_rec[0].Y == 2026 && g_rec[0].M == 11 && g_rec[0].D == 1 && g_rec[0].h == 16 && g_rec[0].mi == 47 && g_rec[0].s == g_rtc_sec,
+            "and the clock: %d-%d-%d %d:%d:%d", g_rec[0].Y, g_rec[0].M, g_rec[0].D, g_rec[0].h, g_rec[0].mi, g_rec[0].s);
+      check(g_rec[0].span == 1, "span is the one look (%d)", g_rec[0].span);
+      check(FILM_IS(0, film_a), "and the film, %s, by name and by hash", g_rec[0].film);
+
+      /* auto on and off, the roll on */
+      mark = roll_size(); se_auto = 1; se_roll_on = 1; se_roll_no = 7; shots = se_roll_shot;
+      counter(100, 502); look();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].from_no == 502 && g_rec[0].roll == 7, "auto on: one line, on roll 7");
+      check(se_q_count() == 1 && se_roll_shot == shots + 1, "and the queue and the roll's count go on as before");
+      drain();
+      mark = roll_size(); se_auto = 0;
+      counter(100, 503); look();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].from_no == 503 && g_rec[0].roll == 7 && se_q_count() == 0, "auto off: one line, nothing queued");
+      se_roll_on = 0; se_roll_shot = shots; se_auto = 1;
+
+      /* over SE_BURST, which the queue will not touch */
+      mark = roll_size();
+      counter(100, 573); look();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].count == 70 && g_rec[0].from_no == 504 && g_rec[0].to_no == 573,
+            "a burst of 70 in one look is one line, count 70 (%d)", g_rec[0].count);
+      check(se_q_count() == 0, "and is still not the queue's");
+
+      /* the queue full: its own counter lags and the roll's does not */
+      mark = roll_size();
+      counter(100, 585); look();
+      check(se_q_count() == 8 && se_pending() == 12, "a burst of twelve leaves the queue behind the counter (%d of %d)", se_q_count(), se_pending());
+      look(); look();
+      check(se_pending() == 12, "and still behind it, looks later (%d)", se_pending());
+      drain();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].count == 12 && g_rec[0].from_no == 574 && g_rec[0].to_no == 585,
+            "and it is counted once: %d line, count %d", n, g_rec[0].count);
+      se_auto = 0;
+
+      /* a folder change inside a range */
+      mark = roll_size(); lens_info.job_state = 8;
+      counter(100, 586); look();
+      counter(101, 587); look();
+      base = g_rtc_sec;
+      lens_info.job_state = 0; look();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].from_folder == 100 && g_rec[0].from_no == 586 && g_rec[0].to_folder == 101 &&
+            g_rec[0].to_no == 587 && g_rec[0].count == 2, "a folder change mid-range: folder %d to %d, one line", g_rec[0].from_folder, g_rec[0].to_folder);
+      check(g_rec[0].span == 2 && g_rec[0].s == base, "dated at the look that saw the last frame, not the write (span %d, :%d)", g_rec[0].span, g_rec[0].s);
+      /* a new folder on its own is not a frame */
+      mark = roll_size();
+      counter(102, 587); look();
+      check(roll_size() == mark, "a folder change with no frame writes nothing");
+      counter(102, 588); look();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].from_folder == 102 && g_rec[0].from_no == 588, "and the next frame is in the new one");
+
+      /* the wrap */
+      counter(102, 9999); look();
+      mark = roll_size();
+      counter(103, 1); look();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].from_folder == 103 && g_rec[0].from_no == 1 && g_rec[0].to_folder == 103 && g_rec[0].to_no == 1 && g_rec[0].count == 1,
+            "9999 to 1: one frame, number 1, in the new folder");
+      counter(103, 9998); look();
+      mark = roll_size();
+      counter(104, 2); look();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].from_folder == 103 && g_rec[0].from_no == 9999 && g_rec[0].to_folder == 104 && g_rec[0].to_no == 2 && g_rec[0].count == 3,
+            "a burst through the wrap: 9999 to 2, three frames (%d)", g_rec[0].count);
+
+      /* a film change: between shots, and with Canon still busy */
+      counter(100, 600); look();
+      mark = roll_size();
+      counter(100, 601); look();
+      se_stock_index = film_b;
+      counter(100, 602); look();
+      ROLL_FROM(mark);
+      check(n == 2 && g_rec[0].to_no == 601 && FILM_IS(0, film_a) && g_rec[1].to_no == 602 && FILM_IS(1, film_b),
+            "a film change between shots is two lines, each on its film (%s, %s)", g_rec[0].film, g_rec[1].film);
+      mark = roll_size(); lens_info.job_state = 8; se_roll_on = 1;
+      counter(100, 603); look();
+      se_stock_index = film_a; se_roll_no = 8;             /* a new film starts a new roll */
+      check(roll_size() == mark, "the change alone writes nothing yet");
+      counter(100, 604); look();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].to_no == 603 && FILM_IS(0, film_b) && g_rec[0].roll == 7,
+            "a shot on the new film sends out the old range even with Canon busy, on its own film and roll");
+      lens_info.job_state = 0; look();
+      ROLL_FROM(mark);
+      check(n == 2 && g_rec[1].from_no == 604 && FILM_IS(1, film_a) && g_rec[1].roll == 8, "and the new range follows when Canon is idle");
+      se_roll_on = 0; se_roll_no = 7;
+      /* the film moved on, no frame came: the line still says what it was shot on */
+      mark = roll_size(); lens_info.job_state = 8;
+      counter(100, 605); look();
+      se_stock_index = film_b; look();
+      lens_info.job_state = 0; look();
+      ROLL_FROM(mark);
+      check(n == 1 && FILM_IS(0, film_a), "a range keeps its film when the choice moves before it is written");
+      se_stock_index = film_a;
+
+      /* the five-look limit: L0 opens, L1-L4 hold, L5 writes */
+      mark = roll_size(); lens_info.job_state = 8;
+      counter(100, 606); look();
+      check(roll_size() == mark, "Canon busy: the look that opens a range writes nothing");
+      { int i, held = 1; for (i = 1; i <= 4; i++) {
+          if (i == 2) counter(100, 607);
+          look();
+          if (i == 2) base = g_rtc_sec;
+          if (roll_size() != mark) held = 0; }
+        check(held, "nor do the next four, one of which adds a frame"); }
+      look();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].from_no == 606 && g_rec[0].to_no == 607 && g_rec[0].count == 2, "the fifth look after it writes, Canon still busy (%d line)", n);
+      check(g_rec[0].s == base && g_rec[0].span == 3, "dated at the frame's look, three looks long (:%d, span %d)", g_rec[0].s, g_rec[0].span);
+      mark = roll_size(); look(); look();
+      check(roll_size() == mark, "and once only");
+      lens_info.job_state = 0; look();
+      check(roll_size() == mark, "and Canon going idle adds nothing");
+
+      /* no films */
+      mark = roll_size(); se_nstocks = 0;
+      counter(100, 610); look();
+      check(roll_size() == mark, "no films: nothing is written");
+      se_nstocks = stocks; look();
+      check(roll_size() == mark, "and those frames are not news when films arrive");
+      counter(100, 611); look();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].from_no == 611 && g_rec[0].count == 1, "the next frame is the next line");
+
+      /* a card that will not take it */
+      { char b[1024]; FILE *h; char *log; long at; int said = 0;
+        snprintf(b, sizeof b, "%s/ML/LOGS/SOUPENG.LOG", g_card);
+        se_log_flush();
+        h = fopen(b, "rb"); fseek(h, 0, SEEK_END); at = ftell(h); fclose(h);
+        mark = roll_size(); opens = g_roll_opens; g_roll_bad_card = 1;
+        counter(100, 612); look(); look();
+        check(g_roll_opens == opens + 2 && roll_size() == mark, "a refused open keeps the range and tries at the next look");
+        check(exists("ML/DATA/SOUPROLL.TXT") && roll_size() == mark, "and has not cost the roll what it already holds");
+        counter(100, 613); look();
+        check(roll_size() == mark, "the card still refusing, the range grows");
+        g_roll_bad_card = 0;
+        counter(100, 614); look();
+        ROLL_FROM(mark);
+        check(n == 1 && g_rec[0].from_no == 612 && g_rec[0].to_no == 614 && g_rec[0].count == 3, "and the card back, nothing was lost");
+
+        /* a film change with the card refusing cannot wait: the old range goes */
+        mark = roll_size(); g_roll_bad_card = 1; se_stock_index = film_a;
+        counter(100, 620); look();
+        se_stock_index = film_b;
+        counter(100, 621); look();
+        g_roll_bad_card = 0;
+        look();
+        ROLL_FROM(mark);
+        check(n == 1 && g_rec[0].from_no == 621 && g_rec[0].count == 1, "a change of film drops the old range, it never gives it the new film");
+
+        /* not during a develop */
+        mark = roll_size(); se_busy = 1;
+        counter(100, 622); look(); look(); look(); look(); look(); look(); look();
+        check(roll_size() == mark, "nothing goes to the card while a frame develops, past the five-look limit too");
+        se_stock_index = film_a;
+        counter(100, 623); look();
+        ROLL_FROM(mark);
+        check(n == 1 && g_rec[0].to_no == 622, "except that a change of film cannot hold the old range");
+        mark = roll_size();
+        se_busy = 0; look();
+        ROLL_FROM(mark);
+        check(n == 1 && g_rec[0].from_no == 623, "and the frame ending lets the rest out");
+
+        mark = roll_size(); g_roll_bad_card = 2;
+        counter(100, 625); look();
+        torn = roll_size();
+        g_roll_bad_card = 0;
+        check(torn > mark, "a short write leaves part of a line");
+        counter(100, 626); look();
+        { char c = 0; snprintf(b, sizeof b, "%s/ML/DATA/SOUPROLL.TXT", g_card);
+          h = fopen(b, "rb"); fseek(h, torn, SEEK_SET); fread(&c, 1, 1, h); fclose(h);
+          check(c == '\n', "the next line closes it first"); }
+        ROLL_FROM(torn + 1);
+        check(n == 1 && g_rec[0].from_no == 626, "and arrives whole");
+        snprintf(b, sizeof b, "%s/ML/LOGS/SOUPENG.LOG", g_card);
+        se_log_flush();
+        h = fopen(b, "rb"); fseek(h, at, SEEK_SET);
+        log = calloc(1, 4097); fread(log, 1, 4096, h); fclose(h);
+        { char *p = log; while ((p = strstr(p, "cannot open ML/DATA/SOUPROLL.TXT"))) { said++; p++; } }
+        free(log);
+        check(said == 1, "all of that is one line in the log (%d)", said); }
+
+      /* a counter that was reset: the last thing here, it leaves 106 for below */
+      counter(100, 7000); look();
+      mark = roll_size();
+      counter(100, 106); look();
+      ROLL_FROM(mark);
+      check(n == 1 && g_rec[0].count == 3105 && g_rec[0].from_no == 7001 && g_rec[0].to_no == 106,
+            "a reset counter, 7000 to 106, is one line that matches nothing (count %d)", g_rec[0].count);
+      se_auto = 1; se_stock_index = film_a;
+    }
+
+    /* 10. power-off mid-frame */
     shoot(107, 1, sample);
     tick(3);
     /* the worker polls every 500 ms and a desktop frame can be over in a
@@ -841,6 +1171,18 @@ int main(int argc, char **argv)
     pthread_join(g_worker, 0);
     pthread_join(g_ui_thread, 0);
     check(g_powersave_held == 0, "power-off hold released on the way out (%d)", g_powersave_held);
+
+    /* the card is left alone from here, frames or no frames */
+    { long was = roll_size(); int opens = g_roll_opens;
+      se_auto = 0; lens_info.job_state = 0;
+      g_shoot_card.file_number = 108; tick(1); tick(6);
+      check(roll_size() == was && g_roll_opens == opens, "after shutdown the roll is not opened, let alone written");
+      /* the whole run: the one torn line above, and nothing else out of shape */
+      { char b[1024]; FILE *h; char c = 0; int n = roll_read(roll_start);
+        check(n > 30 && g_rec_bad == 1, "the run's %d lines all parse, but for the one cut on purpose (%d)", n, g_rec_bad);
+        snprintf(b, sizeof b, "%s/ML/DATA/SOUPROLL.TXT", g_card);
+        h = fopen(b, "rb"); fseek(h, -1, SEEK_END); fread(&c, 1, 1, h); fclose(h);
+        check(c == '\n', "and the file ends in a newline"); } }
 
     printf("sim700d: %d checks, %d failed\n", g_checks, g_fails);
     return g_fails ? 1 : 0;

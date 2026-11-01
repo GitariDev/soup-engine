@@ -446,6 +446,8 @@ static unsigned int se_module_init(void)
     se_menu_film_max();
     se_ui_avail = se_nstocks && file_size("ML/DATA/SOUPUI.BIN") > 0;
     FIO_CreateDirectory("ML/PRINTS");
+    FIO_CreateDirectory("ML/DATA");            /* no pack, no folder; the roll needs it */
+    se_roll_init();
 
     menu_add("Shoot", se_menu, COUNT(se_menu));
     if (se_nstocks) se_resume_cut();

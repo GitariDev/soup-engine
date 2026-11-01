@@ -64,6 +64,13 @@ queue, and the camera will not power off with frames waiting. A frame
 keeps the film and size it was shot with, even if you change them
 while it waits.
 
+Roll file
+---------
+
+ML/DATA/SOUPROLL.TXT records which film each frame was shot on, with
+auto on or off, for the desktop darkroom. It only ever grows, and
+deleting it loses nothing but that record.
+
 Cards
 -----
 
