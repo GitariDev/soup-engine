@@ -18,12 +18,12 @@ import SwiftUI
 ///     wait <ms>                         shot <name>
 ///     dump <label>                      quit
 ///     stack <original|back|next|film>   lose <n>   find   swap <n> <m>
-///     rescan
+///     spoil <n>                         rescan
 ///
 /// `stack` clicks the bar under the picture. `lose` moves the frame's nth print
-/// out of SOUP_SAVE, as a user would in Finder, `find` moves them all back, and
-/// `swap` trades two prints' files. None touches any other folder. `rescan` is
-/// what coming back to the app does.
+/// out of SOUP_SAVE, as a user would in Finder, `find` moves them all back, `swap`
+/// trades two prints' files, and `spoil` leaves a file that is no picture. None
+/// touches any other folder. `rescan` is what coming back to the app does.
 ///
 /// `settle` waits for the fine render, `idle` for a batch to finish. `dump`
 /// prints one JSON line. `shot` writes <SOUP_SHOTS>/<name>.png: those hold
@@ -92,6 +92,8 @@ enum Driver {
             if let r = DriverAnchors.marks[rest] { await click(CGPoint(x: r.midX, y: r.midY)) } else { complain(verb, rest) }
         case "lose": lose(Int(rest) ?? 0, bench)
         case "swap" where numbers.count == 2: swap(Int(numbers[0]), Int(numbers[1]), bench)
+        case "spoil":
+            if let url = saved(Int(rest) ?? 0, bench) { try? Data("not a picture".utf8).write(to: url) } else { complain(verb, rest) }
         case "find": find()
         case "rescan":
             bench.rescan()

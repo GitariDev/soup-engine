@@ -694,7 +694,7 @@ final class Bench: ObservableObject {
 
     /// Which one is up: the film in hand is the original when it is the same picture.
     var onOriginal: Bool {
-        !stack.isEmpty && (place == .original || (place == .film && comparison?.wipes == false))
+        !stack.isEmpty && (place == .original || (place == .film && current?.developsAsOriginal == true))
     }
 
     /// A film in hand with no print yet, which the stack cannot show any other way.
@@ -711,7 +711,7 @@ final class Bench: ObservableObject {
     var showsFilmInHand: Bool {
         switch place {
         case .film: return true
-        case .original: return current?.developingCan?.id == current?.otherwiseFilm?.id
+        case .original: return current?.developsAsOriginal == true
         case .print: return false
         }
     }
@@ -910,6 +910,7 @@ final class Bench: ObservableObject {
             take([print.id: false], of: frame)
             throw CancellationError()
         } catch DarkroomError.printUnreadable {
+            try Task.checkCancellation()    // the bench may be on another frame by now
             main = nil
             filmLate = false
             pictureProblem = "\(print.name) cannot be read. The file stays as it is."

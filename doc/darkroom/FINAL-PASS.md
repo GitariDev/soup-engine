@@ -51,7 +51,7 @@ These could not be checked here, so check them first.
 
 ## 3. Print
 
-- Click "Redevelop to folder". The first print creates `~/Pictures/Soup Prints`.
+- Click "Print to folder". The first print creates `~/Pictures/Soup Prints`.
 - A green line names the file. Show in Finder finds it.
 - Open it: 5184x3456, on Velvia. The card is unchanged.
 - Print it again: `-2`, nothing overwritten.

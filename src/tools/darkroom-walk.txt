@@ -327,3 +327,16 @@ can CLASSIC NEG
 settle
 dump s20-narrow
 shot s20-narrow
+
+# A print that will not open stays a print and says so, and the CR2 is not blamed.
+key [
+settle
+dump s21-will-spoil
+spoil 1
+rescan
+wait 200
+dump s21b-spoiled
+shot s21b-spoiled
+key [
+settle
+dump s21c-original-still-develops

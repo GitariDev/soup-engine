@@ -216,6 +216,16 @@ need("s19e-print-still-waits", "canPrint", False)
 stack("s19e-print-still-waits", "IMG_3985_GOLD.JPG")
 need("s19e-print-still-waits", "hold", "No film is recorded. Choose a can to print.")
 
+need("s21-will-spoil", "place", "IMG_4018_VELVIA.JPG")
+stack("s21b-spoiled", "IMG_4018_VELVIA.JPG")
+need("s21b-spoiled", "pictureProblem", lambda p: "IMG_4018_VELVIA.JPG cannot be read" in (p or ""))
+need("s21b-spoiled", "picture", None)               # no render stands in for the file
+need("s21b-spoiled", "canPrint", True)              # a broken print is not a broken CR2
+need("s21b-spoiled", "word", "YOUR CHOICE")
+need("s21c-original-still-develops", "place", "original")
+need("s21c-original-still-develops", "pictureProblem", None)
+need("s21c-original-still-develops", "picture", lambda p: (p or "").endswith("/classicchrome.fs"))
+
 for label in ("s2-first-print", "s3-original", "s6-third-print", "s8-print-wiped", "s9-pending", "s15b-all-gone"):
     if rect(label) != rect("s1-no-stack"):
         bad.append(f"the picture moved at {label}: {rect('s1-no-stack')} to {rect(label)}")

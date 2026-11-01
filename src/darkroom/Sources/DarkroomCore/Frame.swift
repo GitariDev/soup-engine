@@ -104,6 +104,10 @@ public struct Frame: Sendable, Equatable, Identifiable {
     /// The film to develop on, when it is on the shelf.
     public var developingCan: Film? { choice == nil ? otherwiseFilm : choiceCan }
 
+    /// The film it develops on is the original's. A choice that left the shelf
+    /// is not: nothing develops, and that is not the frame's own film.
+    public var developsAsOriginal: Bool { developingCan?.id == otherwiseFilm?.id }
+
     /// False when there is no film, the film is not on the shelf (a choice can
     /// leave the shelf with its card), or the engine cannot read the CR2.
     public var canPrint: Bool { isReadable && developingCan != nil }

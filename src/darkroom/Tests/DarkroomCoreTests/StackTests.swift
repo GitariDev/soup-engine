@@ -135,6 +135,30 @@ final class StackTests: XCTestCase {
         XCTAssertEqual(f.printHold, "No film is recorded. Choose a can to print.")
     }
 
+    func testOnItsOwnFilmAFrameDevelopsAsTheOriginal() throws {
+        let r = try shotOnPortra()
+        XCTAssertTrue(try r.frame().developsAsOriginal)
+        r.record.choose(try r.can("VELVIA"), for: try r.frame())
+        XCTAssertFalse(try r.frame().developsAsOriginal)
+    }
+
+    func testWithNoFilmTheOriginalIsTheStraightRawItDevelopsAs() throws {
+        let r = try Rig()
+        try r.cr2("IMG_0001.CR2")
+        XCTAssertTrue(try r.frame().developsAsOriginal)
+    }
+
+    /// Nothing develops, which is the straight raw, and that is not its Portra.
+    func testAChoiceThatLeftTheShelfIsNotTheOriginal() throws {
+        let r = try shotOnPortra()
+        r.record.choose(try r.can("VELVIA"), for: try r.frame())
+        r.shelf = try Rig(films: ["PORTRA"]).shelf
+        let f = try r.frame()
+        XCTAssertNil(f.developingCan)
+        XCTAssertNotNil(f.otherwiseFilm)
+        XCTAssertFalse(f.developsAsOriginal)
+    }
+
     func testAPrintAddedWhileTheDiskWasBeingReadStays() throws {
         let r = try shotOnPortra()
         let f = try r.frame()
