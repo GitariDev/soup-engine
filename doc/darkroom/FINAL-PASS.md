@@ -38,9 +38,10 @@ These could not be checked here, so check them first.
 
 ## 2. Find and choose, on your card
 
-- Click 4230. The picture goes from a drained DEVELOPING to the film, under a
-  second once read. The first read off the card takes about 2.5 s.
-- The tray says `PRINTED · ETERNA` and "Redevelop to folder".
+- Click 4230. It opens on its print, `FLM_4230.JPG`, with `PRINT 1 OF 1 · ETERNA` on
+  the picture. `[` goes to `ORIGINAL`, the frame developed on Eterna. The first read
+  of the CR2 off the card takes about 2.5 s.
+- The tray says `PRINTED · ETERNA` and "Redevelop on Eterna".
 - Click the Velvia can. The picture changes at once, a wipe appears, and the tray
   says `YOUR CHOICE · VELVIA`.
 - Hold Space: the Eterna picture. Let go: back. Drag the line across.
@@ -60,6 +61,27 @@ To check the card afterwards, this must list only `soupeng.mo` and `SOUPUI.BIN`,
 your own install:
 
     find /Volumes/EOS_DIGITAL -type f -newermt "2026-11-01 00:00:00"
+
+## 3a. The stack
+
+On any frame, from the bar under the picture or with `[` and `]`:
+
+- Pick a can and print. The enlarger lands on the print, `PRINT 1 OF 1 · VELVIA`, and
+  it is the file, not a render: a Half print here is the half-size file.
+- Press `[` or click `ORIGINAL`. It is the frame on its shot-on film, labelled, or
+  `ORIGINAL · STRAIGHT RAW` on a frame with no record. Your can stays picked.
+- Pick another can and print, then print the same can again. The count reads 3, the
+  third is `-2`, and `[` and `]` go round all of them. The bar's count is the files.
+- On a print, hold Space for the original, and drag across the print to wipe. The
+  line stays where you left it as you cycle.
+- Pick a can you have not printed. It joins the bar in blue, and is the last stop.
+- Delete one print in Finder and come back. The count drops by one. Move one out of
+  the folder and back: it goes and returns. Delete them all: the frame goes back to
+  what it was, and the bar goes.
+- On the fixture, IMG_3991 opens on `FLM_3991.JPG` on Provia, half size. Its original
+  is Gold, from the roll.
+- On a frame with no record, print on a can, then click the can until none is lit
+  and look at the original. Print waits for a choice: the print gave it no film.
 
 ## 4. Every state, on a fixture
 
@@ -122,7 +144,7 @@ Should end `all gates pass`, in about 2.5 minutes. It opens a window for a momen
 
 ## Where to look next
 
-- `doc/darkroom/POLISH.md`: the score, the 15 issues the budget did not reach.
+- `doc/darkroom/POLISH.md`: the score, the issues the budget did not reach.
 - `doc/darkroom/PLAN.md`: every decision, including what Not developed means.
 - One call to overrule if you disagree: the film name is in the camera's Barlow Semi
   Condensed, not the serif in `a-v4.png`, which was a font fallback in the mock. The

@@ -76,8 +76,7 @@ agree to a mean of 0.27, so what the app shows is what prints. The stock is unch
 
 From the juries, not fixed, because the budget was spent. Worst first.
 
-1. Portrait wipe chips collide: on IMG_4019 the two labels overlap and hide the
-   shot-on film's name.
+1. Fixed with the stack: on a narrow picture the second chip drops below the first.
 2. A wipe left at the far right hides film changes, and YOUR CHOICE still shows.
 3. A batch on the Printed tab writes `-2` copies at once with no confirmation, and
    its button says Print where the tray says Redevelop.
@@ -86,7 +85,8 @@ From the juries, not fixed, because the budget was spent. Worst first.
 6. A broken CR2 keeps its placeholder and DEVELOPING chip.
 7. A corrupt bench record is set aside safely, but the notice is cleared before it shows.
 8. A film the parser rejects is dropped with no word on the shelf.
-9. After printing, the wipe's chip says YOUR CHOICE while the tray says PRINTED.
+9. Fixed with the stack for a fresh print, which lands on the file and its chip. A
+   can picked again after it is printed still says YOUR CHOICE.
 10. Two frames with one number in two folders cannot be told apart on the strip.
 11. A lone CR2 is not selected on opening and is called a folder.
 12. A folder with no roll file does not say why every frame has no record.

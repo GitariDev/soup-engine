@@ -42,6 +42,9 @@ and checks the result. `darkroomctl` is the same code from a terminal:
 - `~/Library/Application Support/Soup Darkroom/Films/`: films you added.
 - `~/Pictures/Soup Prints`: prints, until you pick another folder.
 
+The stack on the enlarger shows those files themselves, so a print you delete or
+move leaves the stack and its count.
+
 ## Credit and licence
 
 GPL v2, see [LICENSE](../../LICENSE). Distributed **without any warranty**.

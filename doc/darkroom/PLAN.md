@@ -78,6 +78,32 @@ films are treated as no record, because a guess is worse than a gap.
 A recorded film that is not on the shelf shows its name and holds Print until a
 can is chosen. The state stays Shot on; the strip says NO CAN.
 
+### The stack
+
+A frame's stack is its real prints, as files, so one photo can have several
+develops and each can be looked at again. It adds no state.
+
+**The original** is what Space already showed: the frame on its shot-on can, or the
+straight raw when no film is recorded or its can is not on the shelf. It is rendered
+from the CR2 and labelled which it is. A frame on a recorded film does not also offer
+the straight raw, because that would make two originals and neither word nor key
+could say which. The user asked to see the original again after a choice, and what
+they saw before the choice is this.
+
+| Question | Decision |
+|:--|:--|
+| What is in a stack | the non-empty files on disk: the `FLM_` beside the CR2 first, then this app's in the order made. Each print's film comes from its tag or the record, and an untagged card print names none |
+| What the count counts | files, from `frame.stack`, never `printedFilms`. One path is one print, so a print to a name that came free replaces the record of the file that had it |
+| What is shown | the file through `printPicture`, up to the fine render's size. A render is never shown as a print. A camera print is tagged normal whichever way up the frame was shot, so it turns as its frame does |
+| A file deleted or moved | out of the stack at the next look: each step and each selection asks the disk, off the main actor, and coming back to the app rechecks every print. Moved back, it returns. A print that will not decode stays in the count and says it cannot be read |
+| Printed state | any print on disk, as before. A stack does not change it: a pending choice still makes it Your choice, and when the last file goes the frame goes back to what it was |
+| Space | always the original, from anywhere on the stack. A print is never labelled the original, and if the original is not ready it says DEVELOPING |
+| The wipe | the picture up against the original. On a print it is the print's own line, starting at the left edge so the print shows whole, and it holds as you cycle. There is none on the original |
+| `[` and `]`, and the bar | original, each print, then a film in hand with no print yet, wrapping round. Looking changes no state or choice |
+| Where the enlarger goes | a print lands on the new file, unless another can was picked while it was made. A Printed frame opens on its newest print, and any other frame on the film in hand. Picking a can always goes to that film, live |
+| Print while another picture is up | it still prints the can on the tray, and the button names the film: "Redevelop on Velvia" |
+| No record | a print's film is about that print. It never gives the frame a film, so with the choice cleared Print waits |
+
 ### Open questions from the report
 
 | Question | Decision |
@@ -85,7 +111,7 @@ can is chosen. The state stays Shot on; the strip says NO CAN.
 | Name clash | never overwrite: `IMG_3990_VELVIA.JPG`, then `-2`, `-3`. The file is moved into place with an exclusive rename, so the check cannot race. A batch asks for plain names and that rename alone resolves a clash |
 | Batch progress | "Printing 3 of 16" in the tray, a Stop that finishes the current frame, and a result naming the folder and what was printed, skipped and failed |
 | Where a batch prints | the destination is printed on the batch button's line, always |
-| Does a printed frame show its shot-on film? | yes, "Printed on Eterna" and "Shot on Portra", and Space compares against the shot-on film |
+| Does a printed frame show its shot-on film? | yes, "Printed on Eterna" and "Shot on Portra", and Space compares against the shot-on film, which is the original in the stack |
 | Fogged Eterna on IMG_3996 | the frame and the stock together, not the app; measured in `doc/darkroom/POLISH.md` |
 | Toolkit | SwiftUI, in a Swift package, on macOS 14 or later |
 | A batch includes No record frames | they are skipped and counted, never guessed: "Print 16 of 28, 12 wait for a film" |
@@ -186,4 +212,5 @@ Each check is a command that can be run. `S` is the samples folder, passed as
 - CR2s are opened read-only. Nothing is written to any mounted card, and no test
   or build writes to `/Volumes/EOS_DIGITAL`.
 - Owner photos and renders of them stay in ignored paths or `/tmp`.
+- Nothing that reads a volume runs on the main actor. Prints can be on any volume.
 - D's Test Strip stays out. The wipe compare stays.
