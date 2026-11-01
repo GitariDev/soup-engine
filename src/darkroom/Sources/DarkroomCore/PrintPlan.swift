@@ -48,8 +48,8 @@ public enum Destination {
 
     /// Why a folder counts as on a card, or nil. Links are resolved first. Any
     /// folder named DCIM counts: a card can be freshly formatted, and refusing
-    /// is the safe side. The home folder and those above it are not cards, so a
-    /// backup at `~/DCIM` does not refuse the whole of the user's home.
+    /// is the safe side. The home folder, what is inside it and those above it
+    /// are not cards, so a backup at `~/Pictures/DCIM` refuses only itself.
     public static func cardReason(for url: URL,
                                   home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
         guard let real = resolve(url) else { return "This folder's path goes round in a loop." }
@@ -59,7 +59,9 @@ public enum Destination {
         let homePath = (resolve(home) ?? home).path
         for dir in Paths.upward(from: real) where Paths.isDirectory(dir) {
             let path = (resolve(dir) ?? dir).path           // standardizing drops /private
-            if path == homePath || homePath.hasPrefix(path == "/" ? "/" : path + "/") { continue }
+            if path == homePath || path.hasPrefix(homePath + "/") || homePath.hasPrefix(path == "/" ? "/" : path + "/") {
+                continue
+            }
             if let dcim = Paths.child(of: dir, named: "DCIM"), Paths.isDirectory(dcim) {
                 return "\(real.lastPathComponent) is on a camera card, in \(dir.lastPathComponent). Prints never go on a card."
             }

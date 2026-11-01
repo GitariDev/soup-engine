@@ -2,6 +2,7 @@
 // for display, long C calls run on this file's own threads, and a cancelled
 // task stops its render through the bridge's cancel flag.
 import CSoup
+import DarkroomCore
 import CoreGraphics
 import CryptoKit
 import Foundation
@@ -482,16 +483,10 @@ private func writeJPEG(_ image: CGImage, to file: URL) {
 
 // MARK: - into place
 
-/// A folder on a card, or inside a DCIM tree, is never written to.
+/// A folder on a card, or inside a DCIM tree, is never written to. The rule is
+/// the app's, so a print from the command line cannot go where the app's cannot.
 private func refuseCard(_ folder: URL) throws {
-    let real = folder.resolvingSymlinksInPath().standardizedFileURL
-    let volume = (try? real.resourceValues(forKeys: [.volumeURLKey]))?.volume
-    let onCard = volume.map {
-        FileManager.default.fileExists(atPath: $0.appendingPathComponent("DCIM").path)
-    } ?? false
-    if onCard || real.pathComponents.contains(where: { $0.uppercased() == "DCIM" }) {
-        throw DarkroomError.refusedDestination(folder.path)
-    }
+    if Destination.cardReason(for: folder) != nil { throw DarkroomError.refusedDestination(folder.path) }
 }
 
 /// `name`, then `name-2`, `name-3` in front of the extension, until one is

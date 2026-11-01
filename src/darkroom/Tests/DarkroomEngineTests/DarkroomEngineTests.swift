@@ -214,6 +214,21 @@ final class DarkroomEngineTests: XCTestCase {
         }
     }
 
+    func testRefusesAFolderBesideADCIM() async throws {
+        let root = try folder()
+        let dcim = root.appendingPathComponent("DCIM")
+        try FileManager.default.createDirectory(at: dcim, withIntermediateDirectories: true)
+        let beside = root.appendingPathComponent("beside")
+        try FileManager.default.createDirectory(at: beside, withIntermediateDirectories: true)
+        do {
+            _ = try await room().print(landscape, film: nil, to: beside, name: "x.jpg", half: true)
+            XCTFail("printed beside a DCIM")
+        } catch {
+            XCTAssertEqual(error as? DarkroomError, .refusedDestination(beside.path))
+            XCTAssertEqual(try names(beside), [])
+        }
+    }
+
     func testBridgeCancelStopsAndLeavesNothing() throws {
         let out = try folder().appendingPathComponent("x.jpg")
         sb_warm_up()

@@ -109,6 +109,18 @@ final class PrintPlanTests: XCTestCase {
         XCTAssertNotNil(Destination.validate(r.dcf, home: r.root).reason, "the backup itself stays refused")
     }
 
+    func testACardCopiedInsideTheHomeFolderRefusesOnlyItself() throws {
+        let r = try Rig()
+        let home = r.root.deletingLastPathComponent().appendingPathComponent("home")
+        let fm = FileManager.default
+        try fm.createDirectory(at: home.appendingPathComponent("Pictures/DCIM/100CANON"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: home.appendingPathComponent("Pictures/Trip/DCIM"), withIntermediateDirectories: true)
+        XCTAssertNil(Destination.cardReason(for: Destination.defaultFolder(home: home), home: home))
+        XCTAssertNil(Destination.cardReason(for: home.appendingPathComponent("Pictures/Trip/out"), home: home))
+        XCTAssertNotNil(Destination.cardReason(for: home.appendingPathComponent("Pictures/DCIM/100CANON"), home: home))
+        XCTAssertNotNil(Destination.cardReason(for: r.root.appendingPathComponent("ML"), home: home), "a card outside home")
+    }
+
     func testRefusesThroughASymlink() throws {
         let r = try Rig()
         let fm = FileManager.default
