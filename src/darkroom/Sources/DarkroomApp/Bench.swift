@@ -22,6 +22,11 @@ struct PictureKey: Hashable {
         self.frame = frame.id + "|" + frame.identity
         film = Self.embedded
     }
+
+    init(_ frame: Frame, print: StackPrint) {
+        self.frame = frame.id + "|" + frame.identity
+        film = "print|" + print.id
+    }
 }
 
 struct Picture {
@@ -47,6 +52,17 @@ struct Comparison: Equatable {
     /// The picture on the enlarger differs from it, so the wipe is on.
     let wipes: Bool
     let developingLabel: String
+}
+
+/// Where the enlarger is on a frame's stack. Looking never changes a state, a
+/// choice or what Print makes.
+enum StackPlace: Equatable {
+    /// The film in hand, live: what Print would make.
+    case film
+    /// What Space shows: the frame on its shot-on can, or the straight raw.
+    case original
+    /// A print, by path: the file itself, never a render of it.
+    case print(String)
 }
 
 /// Where the frames came from.
@@ -147,6 +163,12 @@ final class Bench: ObservableObject {
     @Published private(set) var broken: Set<String> = []
     @Published var holdShotOn = false
     @Published var wipe = 0.5
+    /// A print shows whole until the user wipes it: nothing else tells prints apart.
+    @Published var printWipe = 0.0
+    @Published private(set) var place: StackPlace = .film
+    /// Prints found missing since the frames were last read. A frame keeps what
+    /// the card told it when the card is pulled, so this is what hides its print.
+    @Published private var gone: Set<String> = []
 
     // Printing.
     @Published private(set) var saveFolder: URL
@@ -201,7 +223,7 @@ final class Bench: ObservableObject {
         thumbs = Thumbnails(darkroom: dark)
         var problem: String?
         do {
-            record = try BenchRecord.load(directory: support)
+            record = try BenchRecord.load(directory: support, checkPrints: false)
             if let aside = record.setAside {
                 problem = "The bench record could not be read. It was kept as \(aside.lastPathComponent)."
             }
@@ -318,6 +340,8 @@ final class Bench: ObservableObject {
         heldID = nil
         lastPrint = nil
         current = nil
+        place = .film
+        gone = []
         roll = nil
         rollNumber = nil
         scan = ScanProgress(read: 0, total: 0)
@@ -325,13 +349,15 @@ final class Bench: ObservableObject {
         develop()
 
         let added = shelf.addedFolder, bundled = shelf.bundledFolder
-        let (shelf, roll) = await Task.detached {
+        let known = record
+        let (shelf, roll, prints) = await Task.detached {
             (FilmShelf(cardFolder: opened.filmFolder, addedFolder: added, bundledFolder: bundled),
-             opened.rollFile.flatMap(RollFile.read))
+             opened.rollFile.flatMap(RollFile.read), known.presence())
         }.value
         guard token == generation else { return }
         self.shelf = shelf
         self.roll = roll
+        record.take(prints)
         rollNumber = roll?.latestRoll
         films = shelf.ordered
         loadFilms()
@@ -416,16 +442,16 @@ final class Bench: ObservableObject {
     /// Cheap: names and sizes first, and only new or changed files are opened.
     func rescan() {
         guard scan == nil, cardGone == nil, batch?.finished != false else { return }
-        record.refresh()
         guard let picked = openedSource?.picked else { return }
         generation += 1
         let token = generation
         let known = Dictionary(files.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
         let added = shelf.addedFolder, bundled = shelf.bundledFolder
+        let printed = record
 
         rescanTask?.cancel()
         rescanTask = Task { [weak self] in
-            let fresh = await Task.detached { () -> (BenchSource, [FrameFile], RollFile?, FilmShelf)? in
+            let fresh = await Task.detached { () -> Rescan? in
                 guard let opened = try? DarkroomCore.Bench.open(folderOrFile: picked) else { return nil }
                 let scanner = FrameScanner()
                 var out: [FrameFile] = []
@@ -443,7 +469,8 @@ final class Bench: ObservableObject {
                     }
                 }
                 let shelf = FilmShelf(cardFolder: opened.filmFolder, addedFolder: added, bundledFolder: bundled)
-                return (opened, out, opened.rollFile.flatMap(RollFile.read), shelf)
+                return Rescan(opened: opened, files: out, roll: opened.rollFile.flatMap(RollFile.read), shelf: shelf,
+                              prints: printed.presence())
             }.value
             guard let self, token == self.generation, let fresh else { return }
             self.apply(rescan: fresh)
@@ -459,22 +486,34 @@ final class Bench: ObservableObject {
             && old.cutOffPrint == (beside?.bytes == 0)
     }
 
-    private func apply(rescan fresh: (BenchSource, [FrameFile], RollFile?, FilmShelf)) {
-        openedSource = fresh.0
-        files = fresh.1
-        roll = fresh.2
-        rollNumber = fresh.2?.latestRoll
-        shelf = fresh.3
+    private struct Rescan: Sendable {
+        let opened: BenchSource
+        let files: [FrameFile]
+        let roll: RollFile?
+        let shelf: FilmShelf
+        let prints: [String: Bool]
+    }
+
+    private func apply(rescan fresh: Rescan) {
+        openedSource = fresh.opened
+        files = fresh.files
+        roll = fresh.roll
+        rollNumber = fresh.roll?.latestRoll
+        shelf = fresh.shelf
+        record.take(fresh.prints)
+        gone = []
         if films != shelf.ordered {
             films = shelf.ordered
             loadFilms()
         }
         let next = Frame.assemble(files, roll: roll, record: &record, shelf: shelf)
+        // A print on the enlarger may have been changed where it stands.
+        if shownPrint != nil { workKeys = [] }
         if next != frames {
             frames = next
             derive()
-            develop()
         }
+        develop()
     }
 
     // MARK: The strip
@@ -557,7 +596,10 @@ final class Bench: ObservableObject {
         nameDraft = nil
         half = false
         printError = nil
+        printWipe = 0
         derive()
+        place = landing
+        checkStack()
         develop()
     }
 
@@ -592,6 +634,7 @@ final class Bench: ObservableObject {
         nameDraft = nil
         lastPrint = nil
         printError = nil
+        place = .film
         save()
         rebuild(identity: frame.identity)
         develop()
@@ -632,12 +675,111 @@ final class Bench: ObservableObject {
     var developingFilmID: String? { current?.developingCan?.id }
     var shotOnFilmID: String? { current?.otherwiseFilm?.id ?? current?.shotOnFilm.map { Film.key($0.film) } }
 
+    // MARK: The stack
+
+    /// This frame's prints as the disk has them, oldest first. Its length is the count.
+    var stack: [StackPrint] { current?.stack.filter { !gone.contains($0.id) } ?? [] }
+
+    var shownPrint: StackPrint? {
+        guard case .print(let path) = place else { return nil }
+        return stack.first { $0.id == path }
+    }
+
+    /// "PRINT 2 OF 3" on a print, "3 PRINTS" anywhere else.
+    var stackLabel: String {
+        let all = stack
+        if let print = shownPrint, let at = all.firstIndex(of: print) { return "PRINT \(at + 1) OF \(all.count)" }
+        return "\(all.count) \(all.count == 1 ? "PRINT" : "PRINTS")"
+    }
+
+    /// Which one is up: the film in hand is the original when it is the same picture.
+    var onOriginal: Bool {
+        !stack.isEmpty && (place == .original || (place == .film && comparison?.wipes == false))
+    }
+
+    /// A film in hand with no print yet, which the stack cannot show any other way.
+    var pendingFilm: Film? { current.flatMap { $0.hasPendingChoice ? $0.developingCan : nil } }
+
+    /// What Space can show. A print is never called the original, even when its
+    /// CR2 cannot be read and there is no original to show.
+    var spacePicture: Picture? {
+        if comparison?.wipes == true { return compare }
+        return shownPrint == nil ? main : nil
+    }
+
+    /// The picture up is what Print would make.
+    var showsFilmInHand: Bool {
+        switch place {
+        case .film: return true
+        case .original: return current?.developingCan?.id == current?.otherwiseFilm?.id
+        case .print: return false
+        }
+    }
+
+    private var stops: [StackPlace] {
+        let prints = stack
+        guard !prints.isEmpty else { return [] }
+        return [.original] + prints.map { .print($0.id) } + (pendingFilm == nil ? [] : [.film])
+    }
+
+    /// `[` and `]`, and the arrows beside the count. It wraps, so it cycles.
+    func stepStack(by delta: Int) {
+        let stops = stops
+        guard !stops.isEmpty else { return }
+        guard let at = stops.firstIndex(of: onOriginal ? .original : place) else {
+            go(to: stops[delta > 0 ? 0 : stops.count - 1])
+            return
+        }
+        go(to: stops[(at + delta + stops.count) % stops.count])
+    }
+
+    func go(to place: StackPlace) {
+        guard current != nil, place != self.place else { return }
+        self.place = place
+        checkStack()
+        develop()
+    }
+
+    /// A printed frame opens on its newest print, and any other on the film in hand.
+    private var landing: StackPlace {
+        guard current?.state == .printed, let newest = stack.last else { return .film }
+        return .print(newest.id)
+    }
+
+    /// The count is what is on disk now, so each look at a stack asks the disk.
+    private func checkStack() {
+        guard let frame = current else { return }
+        let prints = frame.stack
+        guard !prints.isEmpty else { return }
+        Task { [weak self] in
+            let found = await Task.detached {
+                Dictionary(prints.map { ($0.id, $0.isOnDisk) }, uniquingKeysWith: { a, _ in a })
+            }.value
+            self?.take(found, of: frame)
+        }
+    }
+
+    private func take(_ found: [String: Bool], of frame: Frame) {
+        let missing = Set(found.filter { !$0.value }.keys)
+        gone = gone.subtracting(found.keys).union(missing)
+        guard !missing.isEmpty else { return }
+        record.take(found)
+        rebuild(identity: frame.identity)
+        develop()
+        rescan()
+    }
+
     // MARK: The enlarger
 
     private func compared(with frame: Frame) -> Comparison? {
         let developing = frame.developingCan
         let shot = frame.otherwiseFilm
         let label = shot.map { "SHOT ON \(Film.key($0.name))" } ?? "STRAIGHT RAW"
+        if let print = shownPrint {
+            let right = stackLabel + (print.film.map { " · \(Film.key($0))" } ?? "")
+            return Comparison(film: shot, label: label, wipes: !isUnreadable(frame), developingLabel: right)
+        }
+        if place == .original { return Comparison(film: shot, label: label, wipes: false, developingLabel: "") }
         let wipes = developing != nil && developing?.id != shot?.id
         let right = "YOUR CHOICE \(developing.map { Film.key($0.name) } ?? "")"
         return Comparison(film: shot, label: label, wipes: wipes, developingLabel: right)
@@ -649,7 +791,9 @@ final class Bench: ObservableObject {
     /// Puts the best picture already held on the bench at once, then works up
     /// through the stages. Whatever was running for another key is cancelled.
     private func develop() {
+        if case .print = place, shownPrint == nil { place = landing }
         guard let frame = current else {
+            place = .film
             work?.cancel()
             lateTask?.cancel()
             filmLate = false
@@ -660,8 +804,9 @@ final class Bench: ObservableObject {
             pictureProblem = nil
             return
         }
-        let film = frame.developingCan
-        let mainKey = PictureKey(frame, film: film)
+        let print = shownPrint
+        let film = place == .original ? frame.otherwiseFilm : frame.developingCan
+        let mainKey = print.map { PictureKey(frame, print: $0) } ?? PictureKey(frame, film: film)
         let side = compared(with: frame)
         let sideKey = side.flatMap { $0.wipes ? PictureKey(frame, film: $0.film) : nil }
         let keys = [mainKey, sideKey].compactMap { $0 }
@@ -687,10 +832,14 @@ final class Bench: ObservableObject {
             main = bestStandIn(frame, key: mainKey)
         }
         compare = sideKey.flatMap { cache[$0] }
-        guard frame.isReadable else { return }
+        guard frame.isReadable || print != nil else {
+            pictureProblem = "This CR2 cannot be read."
+            return
+        }
         let others = films
         work = Task { [weak self] in
-            await self?.work(on: frame, film: film, side: side, mainKey: mainKey, sideKey: sideKey, others: others)
+            await self?.work(on: frame, print: print, film: film, side: side, mainKey: mainKey, sideKey: sideKey,
+                             others: others)
         }
     }
 
@@ -701,28 +850,35 @@ final class Bench: ObservableObject {
         return thumbs.cached(frame).map { Picture(key: key, image: $0, stage: .thumbnail) }
     }
 
-    private func work(on frame: Frame, film: Film?, side: Comparison?, mainKey: PictureKey, sideKey: PictureKey?,
-                      others: [Film]) async {
+    private func work(on frame: Frame, print: StackPrint?, film: Film?, side: Comparison?, mainKey: PictureKey,
+                      sideKey: PictureKey?, others: [Film]) async {
         do {
             // A task cancelled before it first ran must not touch the bench,
             // and a hit in the engine's cache returns without looking.
             try Task.checkCancellation()
-            if (main?.stage ?? .thumbnail) < .placeholder {
-                let image = try await darkroom.placeholder(frame.file.url)
-                try Task.checkCancellation()
-                let embedded = Picture(key: PictureKey(embedded: frame), image: image, stage: .placeholder)
-                remember(embedded)
+            if let print {
+                try await show(print, of: frame, key: mainKey)
+                if !frame.isReadable { return }
+                // A step along the stack moves on before this is up.
+                if sideKey.flatMap({ cache[$0] }) == nil { try await Task.sleep(for: .milliseconds(150)) }
+            } else {
                 if (main?.stage ?? .thumbnail) < .placeholder {
-                    main = Picture(key: mainKey, image: image, stage: .placeholder)
+                    let image = try await darkroom.placeholder(frame.file.url)
+                    try Task.checkCancellation()
+                    let embedded = Picture(key: PictureKey(embedded: frame), image: image, stage: .placeholder)
+                    remember(embedded)
+                    if (main?.stage ?? .thumbnail) < .placeholder {
+                        main = Picture(key: mainKey, image: image, stage: .placeholder)
+                    }
                 }
+                // A held arrow key moves on before this is up, so a skim starts no decode.
+                if cache[mainKey] == nil { try await Task.sleep(for: .milliseconds(30)) }
+                try await render(frame, film, mainKey, .quick) { self.main = $0 }
             }
-            // A held arrow key moves on before this is up, so a skim starts no decode.
-            if cache[mainKey] == nil { try await Task.sleep(for: .milliseconds(30)) }
-            try await render(frame, film, mainKey, .quick) { self.main = $0 }
             if let side, let sideKey {
                 try await render(frame, side.film, sideKey, .quick) { self.compare = $0 }
             }
-            try await render(frame, film, mainKey, .fine) { self.main = $0 }
+            if print == nil { try await render(frame, film, mainKey, .fine) { self.main = $0 } }
             if let side, let sideKey {
                 try await render(frame, side.film, sideKey, .fine) { self.compare = $0 }
             }
@@ -741,6 +897,22 @@ final class Bench: ObservableObject {
             if cardGone == nil, FileManager.default.fileExists(atPath: frame.file.url.path) {
                 broken.insert(frame.id)
             }
+        }
+    }
+
+    /// The file, whatever size it is. One that went is out of the stack at once.
+    private func show(_ print: StackPrint, of frame: Frame, key: PictureKey) async throws {
+        do {
+            let image = try await darkroom.printPicture(print.url, frameOrientation: frame.file.facts?.orientation ?? 1)
+            try Task.checkCancellation()
+            main = Picture(key: key, image: image, stage: .fine)
+        } catch DarkroomError.printGone {
+            take([print.id: false], of: frame)
+            throw CancellationError()
+        } catch DarkroomError.printUnreadable {
+            main = nil
+            filmLate = false
+            pictureProblem = "\(print.name) cannot be read. The file stays as it is."
         }
     }
 
@@ -864,18 +1036,30 @@ final class Bench: ObservableObject {
                 }
                 let url = try await self.darkroom.print(frame.file.url, film: dark, to: folder, name: name,
                                                         half: half, quality: 92)
-                self.record.addPrint(DeskPrint(url: url, film: film.name), identity: frame.identity)
-                self.save()
+                self.add(url, film: film, to: frame)
                 self.nameDraft = nil
                 self.lastPrint = (frame.id, url)
-                self.rebuild(identity: frame.identity)
+                // The enlarger goes to the print, unless another can was picked meanwhile.
+                if self.selectedID == frame.id, self.current?.developingCan?.id == film.id {
+                    self.place = .print(url.path)
+                }
                 self.moveOn(from: frame.id)
+                if self.selectedID == frame.id { self.develop() }
                 // The tray that says where it went moves with the selection.
                 if let moved = self.selectedID, moved != frame.id { self.lastPrint = (moved, url) }
             } catch {
                 self.printError = Self.reason(error)
             }
         }
+    }
+
+    /// A name that came free may be one this bench had seen go.
+    private func add(_ url: URL, film: Film, to frame: Frame) {
+        gone.remove(url.path)
+        record.addPrint(DeskPrint(url: url, film: film.name), identity: frame.identity)
+        save()
+        rebuild(identity: frame.identity)
+        develop()
     }
 
     var batchRunning: Bool { batch?.finished == false }
@@ -948,9 +1132,7 @@ final class Bench: ObservableObject {
         switch outcome {
         case .printed(let item, let url):
             batch?.printed += 1
-            record.addPrint(DeskPrint(url: url, film: item.film.name), identity: item.frame.identity)
-            save()
-            rebuild(identity: item.frame.identity)
+            add(url, film: item.film, to: item.frame)
         case .failed(let item, let why):
             batch?.failures.append(.init(name: item.frame.name, reason: why))
         }

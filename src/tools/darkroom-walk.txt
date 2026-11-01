@@ -102,3 +102,212 @@ filter printed
 wait 900
 shot 11-narrowed
 dump 11-narrowed
+
+# The stack. One frame developed several ways, with the original and each print
+# a step apart. Nothing here is printed yet.
+size 1164 680
+filter all
+select IMG_4008
+settle
+dump s1-no-stack
+can VELVIA
+settle
+print
+idle
+settle
+dump s2-first-print
+shot s2-first-print
+stack original
+settle
+dump s3-original
+shot s3-original
+space down
+wait 200
+dump s3b-original-held
+space up
+wait 100
+
+# Another can and another print, and the same can again never overwrites.
+can PORTRA
+settle
+dump s4-second-choice
+print
+idle
+settle
+dump s5-second-print
+can VELVIA
+settle
+print
+idle
+settle
+dump s6-third-print
+shot s6-third-print
+
+# Round and round, by key and by the bar, and off the last print to the original.
+key [
+settle
+dump s7-back-one
+key ]
+key ]
+settle
+dump s7b-round-to-original
+key [
+settle
+dump s7c-round-to-newest
+stack back
+settle
+dump s7d-clicked-back
+stack next
+settle
+dump s7e-clicked-next
+
+# The wipe on a print starts whole, and is the print's own line.
+image-drag 0.02 0.4
+wait 200
+dump s8-print-wiped
+shot s8-print-wiped
+key [
+settle
+dump s8b-wipe-holds
+shot s8b-wipe-holds
+space down
+wait 200
+dump s8c-space-on-print
+shot s8c-space-on-print
+space up
+wait 100
+
+# A film in hand with no print is a stop on the stack, so it can be gone back to.
+can GOLD
+settle
+dump s9-pending
+key [
+settle
+dump s9b-off-the-film
+stack film
+settle
+dump s9c-back-to-the-film
+can VELVIA
+settle
+dump s10-printed-can-is-live
+select IMG_4009
+settle
+select IMG_4008
+settle
+dump s10b-opens-on-newest
+
+# Files go. Coming back to the app sees it, and so does a look at the stack alone.
+lose 3
+rescan
+settle
+dump s11-shown-print-lost
+lose 1
+key [
+wait 300
+settle
+dump s12-lost-without-coming-back
+find
+rescan
+settle
+dump s13-moved-back
+stack next
+settle
+dump s13b-after-moved-back
+lose 3
+stack next
+wait 300
+settle
+dump s14-stepped-onto-nothing
+find
+rescan
+wait 200
+filter notDeveloped
+wait 100
+dump s15-before-all-gone
+filter all
+select IMG_4008
+settle
+lose 3
+lose 2
+lose 1
+rescan
+settle
+dump s15b-all-gone
+shot s15b-all-gone
+
+# The name comes free, so the next print lands on a path the record already had.
+print
+idle
+settle
+dump s16-name-came-free
+find
+rescan
+settle
+dump s16b-others-back
+
+# The card's print is the file beside the CR2: half size, film from its tag.
+select IMG_3991
+settle
+dump s17-card-print
+shot s17-card-print
+key [
+settle
+dump s17b-card-original
+can PORTRA
+settle
+print
+idle
+settle
+dump s17c-card-and-desk
+
+# A portrait print stands the way the frame does, and the picture does not move.
+select IMG_4020
+settle
+dump s18-portrait-film
+can VELVIA
+settle
+print
+idle
+settle
+dump s18b-portrait-print
+image-drag 0.02 0.45
+wait 200
+shot s18c-portrait-wiped
+
+# No record: the original is the straight raw, and a print gives the frame no film.
+select IMG_3985
+settle
+dump s19-no-record
+can GOLD
+settle
+print
+idle
+settle
+dump s19b-no-record-printed
+key [
+settle
+dump s19c-straight-original
+shot s19c-straight-original
+can none
+settle
+dump s19d-choice-cleared
+print
+wait 300
+key ]
+settle
+print
+wait 300
+dump s19e-print-still-waits
+
+# The bar at the narrowest window, with the longest film in hand.
+size 1000 620
+select IMG_4018
+settle
+can VELVIA
+settle
+print
+idle
+can CLASSIC NEG
+settle
+dump s20-narrow
+shot s20-narrow

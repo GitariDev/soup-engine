@@ -149,6 +149,10 @@ final class KeyMonitor {
             default: bench.stepFilm(by: -1)
             }
             return true
+        case 33, 30:    // [ and ]
+            guard plain, !typing, event.type == .keyDown else { return false }
+            bench.stepStack(by: event.keyCode == 33 ? -1 : 1)
+            return true
         default:
             return false
         }

@@ -64,6 +64,7 @@ struct TrayView: View {
                 printControls(frame)
             case .yourChoice:
                 dimText(choiceLine(frame))
+                if let print = bench.shownPrint { printLine(print, frame) }
                 printControls(frame)
             case .noRecord: noRecord(frame)
             case .printed: printed(frame)
@@ -80,14 +81,20 @@ struct TrayView: View {
     }
 
     @ViewBuilder private func printed(_ frame: Frame) -> some View {
-        if frame.cardPrint != nil, frame.deskPrints.isEmpty {
-            dimText("\(frame.file.stem). The print on the card stays as it is.\(shotOnSentence(frame))")
-        } else if let print = frame.deskPrints.last {
-            dimText("\(frame.file.stem). The print is in \(bench.place(print.url.deletingLastPathComponent())).\(shotOnSentence(frame))")
-            finderLink(print.url)
-        }
+        if let print = bench.shownPrint ?? bench.stack.last { printLine(print, frame, shotOn: true) }
         developingOn(frame)
         printControls(frame)
+    }
+
+    /// Which file is on the enlarger, or the newest when the original is.
+    @ViewBuilder private func printLine(_ print: StackPrint, _ frame: Frame, shotOn: Bool = false) -> some View {
+        let also = shotOn ? shotOnSentence(frame) : ""
+        if print.isCardPrint {
+            dimText("\(print.name). The print on the card stays as it is.\(also)")
+        } else {
+            dimText("\(print.name) is in \(bench.place(print.url.deletingLastPathComponent())).\(also)")
+        }
+        finderLink(print.url)
     }
 
     private func shotOnSentence(_ frame: Frame) -> String {
@@ -116,6 +123,10 @@ struct TrayView: View {
 
     private func printTitle(_ frame: Frame) -> String {
         if bench.isUnreadable(frame) { return "Print to folder" }
+        // The picture up is not what Print makes, so the button says what it does.
+        if !bench.showsFilmInHand, let film = frame.developingCan {
+            return "\(frame.state == .printed ? "Redevelop" : "Print") on \(film.displayName)"
+        }
         switch frame.state {
         case .noRecord: return "Print ▸"
         case .printed: return "Redevelop to folder"

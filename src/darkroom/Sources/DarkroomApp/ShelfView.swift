@@ -47,8 +47,9 @@ struct ShelfView: View {
         let shotOn = bench.shotOnFilmID == film.id
         return Button {
             Panels.dropFocus()
-            // A frame with no record can only go back to no film by picking the can again.
-            let clears = selected && bench.current?.shotOnFilm == nil
+            // A frame with no record can only go back to no film by picking the can
+            // again. With a print on the enlarger, the can brings its film back first.
+            let clears = selected && bench.current?.shotOnFilm == nil && bench.place == .film
             bench.choose(film: clears ? nil : film)
         } label: {
             CanView(film: film, selected: selected)

@@ -1,6 +1,7 @@
 import AppKit
 import DarkroomCore
 import Foundation
+import SwiftUI
 
 /// Walks the real window from a script: `SoupDarkroom --drive walk.txt`. Keys
 /// and the mouse go in through the event queue, the way the system delivers
@@ -9,13 +10,19 @@ import Foundation
 ///
 ///     open <path>                       filter <all|shotOn|printed|yourChoice|noRecord|notDeveloped>
 ///     select <name>                     can <film|none>
-///     key <left|right|up|down>          space <down|up>
+///     key <left|right|up|down|[|]>      space <down|up>
 ///     mouse <x> <y>                     drag <x0> <y0> <x1> <y1>      (window points, top left)
 ///     image-drag <from 0..1> <to 0..1>  size <w> <h>
 ///     print | batch | stop              folder <path>   half <on|off>   name <text>
 ///     settle                            idle
 ///     wait <ms>                         shot <name>
 ///     dump <label>                      quit
+///     stack <original|back|next|film>   lose <n>   find
+///     rescan
+///
+/// `stack` clicks the bar under the picture. `lose` moves the frame's nth print
+/// out of SOUP_SAVE, as a user would in Finder, and `find` moves them all back.
+/// Neither touches any other folder. `rescan` is what coming back to the app does.
 ///
 /// `settle` waits for the fine render, `idle` for a batch to finish. `dump`
 /// prints one JSON line. `shot` writes <SOUP_SHOTS>/<name>.png: those hold
@@ -57,7 +64,7 @@ enum Driver {
             else if let f = bench.films.first(where: { Film.key($0.name) == Film.key(rest) }) { bench.choose(film: f) }
             else { complain(verb, rest) }
         case "key":
-            let code: [String: UInt16] = ["left": 123, "right": 124, "down": 125, "up": 126]
+            let code: [String: UInt16] = ["left": 123, "right": 124, "down": 125, "up": 126, "[": 33, "]": 30]
             if let k = code[rest] { post(.keyDown, k); post(.keyUp, k) } else { complain(verb, rest) }
         case "space": post(rest == "up" ? .keyUp : .keyDown, 49, repeating: rest == "repeat")
         case "mouse" where numbers.count == 2: await click(CGPoint(x: numbers[0], y: numbers[1]))
@@ -80,7 +87,18 @@ enum Driver {
         case "folder": bench.setSaveFolder(URL(fileURLWithPath: rest))
         case "half": bench.half = rest == "on"
         case "name": bench.nameDraft = rest
-        case "settle": await poll { (bench.main?.stage == .fine && !bench.showsOldFilm) || bench.pictureProblem != nil }
+        case "stack":
+            if let r = DriverAnchors.marks[rest] { await click(CGPoint(x: r.midX, y: r.midY)) } else { complain(verb, rest) }
+        case "lose": lose(Int(rest) ?? 0, bench)
+        case "find": find()
+        case "rescan":
+            bench.rescan()
+            try? await Task.sleep(for: .milliseconds(400))
+        case "settle":
+            await poll {
+                let side = bench.comparison?.wipes != true || bench.compare?.stage == .fine
+                return (bench.main?.stage == .fine && !bench.showsOldFilm && side) || bench.pictureProblem != nil
+            }
         case "idle": await poll(seconds: 300) { !bench.batchRunning && bench.printingIDs.isEmpty }
         case "wait": try? await Task.sleep(for: .milliseconds(numbers.first ?? 0))
         case "shot": shot(rest)
@@ -103,6 +121,36 @@ enum Driver {
     private static func poll(seconds: Double = 20, _ done: () -> Bool) async {
         let end = Date().addingTimeInterval(seconds)
         while !done(), Date() < end { try? await Task.sleep(for: .milliseconds(20)) }
+    }
+
+    // MARK: the save folder, as a user would treat it
+
+    private static var aside: URL? {
+        ProcessInfo.processInfo.environment["SOUP_SAVE"].map { URL(fileURLWithPath: $0 + ".aside", isDirectory: true) }
+    }
+
+    /// Only ever a file directly in the throwaway save folder.
+    private static func lose(_ n: Int, _ bench: Bench) {
+        let stack = bench.stack
+        guard let aside, let save = ProcessInfo.processInfo.environment["SOUP_SAVE"], stack.indices.contains(n - 1),
+              stack[n - 1].url.deletingLastPathComponent().resolvingSymlinksInPath().path
+                == URL(fileURLWithPath: save).resolvingSymlinksInPath().path else {
+            complain("lose", "\(n)")
+            return
+        }
+        let url = stack[n - 1].url
+        try? FileManager.default.createDirectory(at: aside, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.moveItem(at: url, to: aside.appendingPathComponent(url.lastPathComponent))
+        } catch { complain("lose", "\(url.lastPathComponent)") }
+    }
+
+    private static func find() {
+        guard let aside, let save = ProcessInfo.processInfo.environment["SOUP_SAVE"] else { return }
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: aside.path)) ?? [] {
+            try? FileManager.default.moveItem(at: aside.appendingPathComponent(name),
+                                              to: URL(fileURLWithPath: save).appendingPathComponent(name))
+        }
     }
 
     // MARK: events
@@ -194,7 +242,23 @@ enum Driver {
         out["filmLate"] = bench.filmLate
         out["firstFilms"] = bench.films.prefix(2).map(\.name).joined(separator: " ")
         out["showsOldFilm"] = bench.showsOldFilm
-        if let p = bench.main { out["picture"] = "\(p.stage) \(p.key.film)" }
+        if let p = bench.main {
+            out["picture"] = "\(p.stage) \(p.key.film)"
+            out["pictureSize"] = "\(p.image.width)x\(p.image.height)"
+        }
+        out["stack"] = bench.stack.count
+        out["stackFiles"] = bench.stack.map(\.name).joined(separator: " ")
+        out["stackFilms"] = bench.stack.map { $0.film ?? "-" }.joined(separator: " ")
+        out["stackLabel"] = bench.stackLabel
+        out["onOriginal"] = bench.onOriginal
+        out["place"] = bench.shownPrint?.name ?? "\(bench.place)"
+        out["printWipe"] = bench.printWipe
+        out["wipes"] = bench.comparison?.wipes ?? false
+        out["right"] = bench.comparison?.developingLabel ?? ""
+        out["left"] = bench.comparison?.label ?? ""
+        out["compare"] = bench.compare.map { "\($0.stage) \($0.key.film)" } ?? ""
+        out["inHand"] = bench.showsFilmInHand
+        out["spaceShows"] = bench.spacePicture?.key.film ?? ""
         if let p = bench.pictureProblem { out["pictureProblem"] = p }
         if let p = bench.printError { out["printError"] = p }
         if let p = bench.saveProblem { out["saveProblem"] = p }
@@ -216,4 +280,18 @@ enum Driver {
 enum DriverAnchors {
     static var imageRect: CGRect?
     static var printRect: CGRect?
+    static var marks: [String: CGRect] = [:]
+
+    /// Keeps `marks[name]` on where this view is.
+    struct Mark: View {
+        let name: String
+
+        var body: some View {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { marks[name] = geo.frame(in: .global) }
+                    .onChange(of: geo.frame(in: .global)) { _, rect in marks[name] = rect }
+            }
+        }
+    }
 }

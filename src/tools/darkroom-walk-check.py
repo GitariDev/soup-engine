@@ -78,6 +78,141 @@ prints = open(sys.argv[2]).read().split()
 if len(prints) < 2:
     bad.append(f"expected prints, found {prints}")
 
+# The stack. The picture is the file, the count is the files, and looking at it
+# changes nothing.
+def shown(label, name):
+    need(label, "place", name)
+    need(label, "picture", lambda p: (p or "") .startswith("fine print|") and (p or "").endswith("/" + name))
+
+def stack(label, *names):
+    need(label, "stack", len(names))
+    need(label, "stackFiles", " ".join(names))
+
+VELVIA, PORTRA, AGAIN = "IMG_4008_VELVIA.JPG", "IMG_4008_PORTRA.JPG", "IMG_4008_VELVIA-2.JPG"
+ETERNA_RENDER = lambda p: (p or "").startswith("fine ") and (p or "").endswith("/eterna.fs")
+
+need("s1-no-stack", "state", "shotOn")
+stack("s1-no-stack")
+need("s1-no-stack", "place", "film")
+need("s1-no-stack", "onOriginal", False)
+
+need("s2-first-print", "state", "printed")
+stack("s2-first-print", VELVIA)
+shown("s2-first-print", VELVIA)
+need("s2-first-print", "stackLabel", "PRINT 1 OF 1")
+need("s2-first-print", "right", "PRINT 1 OF 1 · VELVIA")
+need("s2-first-print", "left", "SHOT ON ETERNA")
+need("s2-first-print", "printWipe", 0)              # a print shows whole
+need("s2-first-print", "lastPrint", lambda p: (p or "").endswith("/" + VELVIA))
+
+# The original is the frame on its shot-on film. The choice stands, and Print still uses it.
+need("s3-original", "place", "original")
+need("s3-original", "onOriginal", True)
+need("s3-original", "wipes", False)
+need("s3-original", "picture", ETERNA_RENDER)
+need("s3-original", "stackLabel", "1 PRINT")
+need("s3-original", "developing", "VELVIA")
+need("s3-original", "state", "printed")
+need("s3-original", "inHand", False)
+need("s3b-original-held", "holdShotOn", True)
+need("s3b-original-held", "spaceShows", lambda p: (p or "").endswith("/eterna.fs"))
+
+need("s4-second-choice", "state", "yourChoice")     # another can on a stack is a choice again
+need("s4-second-choice", "place", "film")
+need("s4-second-choice", "inHand", True)
+stack("s4-second-choice", VELVIA)
+
+stack("s5-second-print", VELVIA, PORTRA)
+shown("s5-second-print", PORTRA)
+need("s5-second-print", "stackLabel", "PRINT 2 OF 2")
+stack("s6-third-print", VELVIA, PORTRA, AGAIN)      # never overwritten
+shown("s6-third-print", AGAIN)
+need("s6-third-print", "stackLabel", "PRINT 3 OF 3")
+need("s6-third-print", "stackFilms", "VELVIA PORTRA VELVIA")
+
+shown("s7-back-one", PORTRA)
+need("s7-back-one", "stackLabel", "PRINT 2 OF 3")
+need("s7b-round-to-original", "place", "original")
+shown("s7c-round-to-newest", AGAIN)
+shown("s7d-clicked-back", PORTRA)
+shown("s7e-clicked-next", AGAIN)
+
+need("s8-print-wiped", "printWipe", lambda w: w is not None and abs(w - 0.4) < 0.02)
+need("s8-print-wiped", "wipe", log.get("3b-wiped", {}).get("wipe"))  # the film wipe is left alone
+shown("s8b-wipe-holds", PORTRA)
+need("s8b-wipe-holds", "printWipe", lambda w: w is not None and abs(w - 0.4) < 0.02)
+need("s8c-space-on-print", "holdShotOn", True)
+need("s8c-space-on-print", "spaceShows", lambda p: (p or "").endswith("/eterna.fs"))
+need("s8c-space-on-print", "compare", ETERNA_RENDER)
+
+need("s9-pending", "state", "yourChoice")
+shown("s9b-off-the-film", AGAIN)                    # the film in hand is the last stop
+need("s9c-back-to-the-film", "place", "film")
+need("s9c-back-to-the-film", "picture", lambda p: (p or "").endswith("/gold.fs"))
+
+need("s10-printed-can-is-live", "state", "printed")
+need("s10-printed-can-is-live", "place", "film")
+need("s10-printed-can-is-live", "picture", lambda p: (p or "").endswith("/velvia.fs"))
+shown("s10b-opens-on-newest", AGAIN)
+
+stack("s11-shown-print-lost", VELVIA, PORTRA)
+shown("s11-shown-print-lost", PORTRA)               # it moves off what went
+stack("s12-lost-without-coming-back", PORTRA)
+stack("s13-moved-back", VELVIA, PORTRA, AGAIN)      # a drive plugged back in
+shown("s14-stepped-onto-nothing", VELVIA)
+stack("s14-stepped-onto-nothing", VELVIA, PORTRA)
+
+stack("s15b-all-gone")
+need("s15b-all-gone", "state", "yourChoice")        # Velvia is chosen and no longer printed
+need("s15b-all-gone", "place", "film")
+need("s15b-all-gone", "onOriginal", False)
+if counts("s15b-all-gone")["notDeveloped"] != counts("s15-before-all-gone")["notDeveloped"] + 1:
+    bad.append("the Not developed tab did not take the frame back")
+
+stack("s16-name-came-free", VELVIA)                 # one path, one print
+need("s16-name-came-free", "state", "printed")
+stack("s16b-others-back", PORTRA, AGAIN, VELVIA)    # the one aside could not come back over it
+need("s16b-others-back", "stackFilms", "PORTRA VELVIA VELVIA")
+
+stack("s17-card-print", "FLM_3991.JPG")
+shown("s17-card-print", "FLM_3991.JPG")
+need("s17-card-print", "right", "PRINT 1 OF 1 · PROVIA")
+need("s17-card-print", "left", "SHOT ON GOLD")      # the roll wins for the original
+need("s17-card-print", "developing", "GOLD")
+need("s17-card-print", "pictureSize", "2592x1728")
+need("s17b-card-original", "picture", lambda p: (p or "").endswith("/gold.fs"))
+need("s17b-card-original", "inHand", True)          # on its own film, the original is what Print makes
+stack("s17c-card-and-desk", "FLM_3991.JPG", "IMG_3991_PORTRA.JPG")
+need("s17c-card-and-desk", "stackLabel", "PRINT 2 OF 2")
+
+need("s18-portrait-film", "pictureSize", "1728x2592")
+need("s18b-portrait-print", "pictureSize", "1728x2592")
+if rect("s18-portrait-film") != rect("s18b-portrait-print"):
+    bad.append(f"a portrait print moved: {rect('s18-portrait-film')} to {rect('s18b-portrait-print')}")
+
+need("s19-no-record", "state", "noRecord")
+need("s19b-no-record-printed", "state", "printed")
+need("s19b-no-record-printed", "left", "STRAIGHT RAW")
+need("s19c-straight-original", "picture", lambda p: (p or "").endswith("straight"))
+need("s19c-straight-original", "onOriginal", True)
+need("s19d-choice-cleared", "developing", lambda v: not v)  # a print is no film record
+need("s19d-choice-cleared", "shotOn", lambda v: not v)
+need("s19d-choice-cleared", "canPrint", False)
+need("s19d-choice-cleared", "onOriginal", True)
+need("s19e-print-still-waits", "canPrint", False)
+stack("s19e-print-still-waits", "IMG_3985_GOLD.JPG")
+need("s19e-print-still-waits", "hold", "No film is recorded. Choose a can to print.")
+
+for label in ("s2-first-print", "s3-original", "s6-third-print", "s8-print-wiped", "s9-pending", "s15b-all-gone"):
+    if rect(label) != rect("s1-no-stack"):
+        bad.append(f"the picture moved at {label}: {rect('s1-no-stack')} to {rect(label)}")
+    if button(label) != button("2-shot-on"):
+        bad.append(f"Print moved at {label}: {button('2-shot-on')} to {button(label)}")
+
+for name in (VELVIA, PORTRA, "IMG_3991_PORTRA.JPG", "IMG_3985_GOLD.JPG"):
+    if name not in prints:
+        bad.append(f"{name} is not on disk: {prints}")
+
 for b in bad:
     print("  " + b)
 sys.exit(1 if bad else 0)
