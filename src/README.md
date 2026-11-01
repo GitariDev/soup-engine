@@ -25,8 +25,9 @@ make test-full  # the suite, the sample-driven checks, and a sanitiser build
 make arm        # check the engine still builds freestanding for ARM946E-S
 ```
 
-Nothing unusual is needed for those. The camera builds each want a
-cross-compiler and something of Magic Lantern's:
+Nothing unusual is needed for those. The camera builds mostly want a
+cross-compiler and something of Magic Lantern's, though `make sim700d`
+needs neither:
 
 ```sh
 make simtest    # 5D Classic: the real payload against a mock camera, byte for byte
@@ -43,6 +44,12 @@ their source instead, which `make vendor-700d` fetches (see below).
 Nothing of theirs is committed here, and you do not need any of it to
 use the card files in `../card`.
 
+`make test-full` and `make simtest` use the raws in `samples/`, which are
+the owner's photos and are not committed. `make sim700d` uses them too if
+they are there. On a fresh clone they are not, so it runs on `out/public.CR2`,
+which `tools/mkcr2.c` builds from one frame of `doc/stocks.jpg`: the same JPEG
+path and the same checks, with no sensor data in the file.
+
 The two sim targets are the ones that matter. Each runs the actual
 camera code against a mock of the camera's API and compares what the
 simulated camera writes against a desktop reference, byte for byte.
@@ -56,16 +63,22 @@ wrote from the frame's own EXIF and compares the files.
 The 700D's Magic Lantern port has a module loader, so there is no
 patching: `ml/700d/soupeng.c` is a normal module that asks Magic Lantern
 for files, memory, tasks and the menu, and `ml/700d/Makefile` borrows
-their module build. It needs two things outside this repository:
+their module build. `make card-700d` needs `rst2html` from Python's docutils,
+and two things outside this repository:
 
 | | |
 |:--|:--|
-| `vendor/magiclantern_simplified/` | their source, checked out at the commit the camera's `autoexec.bin` was built from (`ed3e7c0df` for the 2025-06-20 700D build) plus `ml/700d/patches/`, three small fixes to their build scripts for current Python and for a module living outside their tree. `make vendor-700d` clones, checks out and patches it; `vendor/` is ignored by git. |
+| `vendor/magiclantern_simplified/` | their source, checked out at the commit the camera's `autoexec.bin` was built from (`ed3e7c0df` for the 2025-06-20 700D build) plus `ml/700d/patches/`, small fixes to their build scripts: current Python, a module living outside their tree, and no user or host name written into a module. `make vendor-700d` clones, checks out and patches it; `vendor/` is ignored by git. |
 | Arm's GNU toolchain | `arm-none-eabi-gcc` with newlib's headers, which Homebrew's package lacks. The Makefile looks for it at `~/.local/opt/arm-gnu-toolchain-15.3.rel2`; set `ARM_TOOLCHAIN` otherwise. It must live at a path without spaces, because their Makefile does not quote the compiler. |
 
 ```sh
-make card-700d   # soupeng.mo, the films, the art and the enable file, in out/card-700d/
+make card-700d   # fetches their source the first time; soupeng.mo, the films,
+                 # the art and the enable file, in out/card-700d/
 ```
+
+A checkout from before the user-name fix makes the build stop, rather than
+write your user name into the module. Delete
+`vendor/magiclantern_simplified` and run it again.
 
 The module is six files -- `soupeng.c` (films, menu, config, lifetime),
 `develop.c` (one frame), `watch.c` (the queue and its tasks), `screen.c`
@@ -79,12 +92,33 @@ and the screen through its keys.
 
 The film screen's art is `ml/700d/data/SOUPUI.BIN`, which `make card-700d`
 copies to `ML/DATA` on the card. `tools/mkui.js` renders it from the design
-in `doc/menu-sample/`; it needs a Chromium and runs only when the design
-changes, so a build never does.
+in `doc/menu-sample/`, and runs only when the design changes, so a build never
+does. It needs `playwright-core` from npm and a Chromium, neither of which is
+in this repository:
+
+```sh
+npm i playwright-core                # anywhere; NODE_PATH points at it
+npx playwright-core install chromium
+NODE_PATH=<dir>/node_modules CHROME=<path to the chromium binary> node tools/mkui.js
+```
+
+A different Chromium may not give the same bytes. The pack that is committed
+is the one that has run on the camera.
+
+The pictures in `doc/screens/` come from the simulator, each screen as a PPM
+from the real module through the real palette. Always use the public sample
+for anything you publish, because with raws in `samples/` the default is your
+own photo:
+
+```sh
+mkdir -p /tmp/screens
+SE_SIM_DUMP=/tmp/screens make sim700d SIM700D_SAMPLE=out/public.CR2
+```
 
 Copy the contents of `out/card-700d` onto a card that already has
 Magic Lantern's 700D build on it, eject it, and switch the camera on
 with the card in. Soup Engine is under Shoot in Magic Lantern's menu.
+On a Mac, copy with `COPYFILE_DISABLE=1 cp -R`, or run `dot_clean` afterwards.
 
 What the camera writes is checked against the desktop the same way as
 the 5D's: `tools/previewcheck <raw> <stock> <scale>` prints the hash
