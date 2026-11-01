@@ -21,9 +21,10 @@
  * move, SET acts, MENU goes back one step, Trash closes. The exception is
  * the print viewer, where Trash deletes a print and asks first.
  *
- * AE lock and AF point were the first choice, and the first camera run
- * ended that: on the idle screen neither ever reaches a module, in either
- * callback, so Canon acts on them and there is nothing to take.
+ * AE lock and AF point were the first choice, and they stay Canon's. Magic
+ * Lantern has no name for either on the idle screen, and the camera's log
+ * shows one unnamed event, raw 0x52 with obj 0 and arg 0, which they appear
+ * to share: there is nothing in it to tell them apart.
  *
  * Nothing here draws. The key callback runs on Canon's GUI task, which must
  * not wait for a repaint, so it changes the choice, leaves a note, and the
@@ -373,11 +374,10 @@ static void se_ui_next_size(void)
 }
 
 /*
- * Anything else raw that goes past while the screen is up. AE lock and AF
- * point do not arrive as the codes Magic Lantern has for them; if they arrive
- * at all it is as something else, and this is how to find out: a few of each
- * code, with what travels with it. Magic Lantern's own note says some
- * buttons share one unnamed event, which is what obj and arg are here for.
+ * Anything else raw that goes past while the screen is up: a few of each
+ * code, with what travels with it. This is how AE lock and AF point were
+ * looked for. They do not arrive as the codes Magic Lantern has for them, and
+ * the log has 0x52 with obj 0 and arg 0 instead, which they appear to share.
  */
 static void se_ui_saw_raw(struct event *ev)
 {

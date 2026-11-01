@@ -35,7 +35,7 @@ Home
 ----
 
 MENU on the film screen opens Home. Up and down move, SET opens, MENU
-goes back a step, and Trash closes.
+goes back a step, and Trash closes. PLAY on Home opens Prints.
 
 Darkroom lists frames developing and raws with no print. SET develops
 one, Q all of them.
@@ -73,4 +73,4 @@ camera may not start with it until it is ejected cleanly again.
 :Author: luigi manga (engine); 700D port by GitariDev
 :License: GPL v2
 :Summary: Film looks in the camera. A graded JPEG beside every raw.
-:Website: https://github.com/jiijii0/soup-engine
+:Website: https://github.com/GitariDev/soup-engine
