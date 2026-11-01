@@ -140,7 +140,7 @@ Then, with the card back in:
 
     sh tools/darkroom-gates.sh "$S"
 
-Should end `all gates pass`, in about 2.5 minutes. It opens a window for a moment.
+Should end `all gates pass`, in about 3.5 minutes. It opens a window for a moment.
 
 ## Where to look next
 

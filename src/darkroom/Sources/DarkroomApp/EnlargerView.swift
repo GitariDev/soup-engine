@@ -57,11 +57,11 @@ struct EnlargerView: View {
         if let notice = bench.notice ?? bench.cardNote {
             Text(notice).font(Theme.font(11)).foregroundColor(Theme.warn).lineLimit(2)
                 .multilineTextAlignment(.center)
-        } else if bench.shownPrint != nil, bench.comparison?.wipes == true {
+        } else if bench.shownPrint != nil, bench.main != nil, bench.comparison?.wipes == true {
             (keys + Text(" Hold ") + Text("Space").bold() + Text(" for the original. Drag across the print to wipe."))
                 .font(Theme.font(11)).foregroundColor(Theme.dim).lineLimit(2)
                 .multilineTextAlignment(.center)
-        } else if bench.current != nil, bench.comparison?.wipes == true {
+        } else if bench.shownPrint == nil, bench.current != nil, bench.comparison?.wipes == true {
             let side = bench.comparison?.film == nil ? "the straight raw" : "the film it was shot on"
             (Text("Hold ") + Text("Space").bold() + Text(" to see \(side). Drag the line to wipe between them."))
                 .font(Theme.font(11)).foregroundColor(Theme.dim).lineLimit(bench.stack.isEmpty ? 1 : 2)
