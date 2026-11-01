@@ -54,6 +54,11 @@ need("9b-empty-tab", "frame", None)
 need("9b-empty-tab", "visible", "")
 need("9c-back", "frame", log.get("9a-moved-on", {}).get("frame"))
 
+# A can pick keeps the developed picture; once the film is up nothing is old.
+need("10-can-pick", "picture", lambda p: (p or "").split(" ")[0] in ("quick", "fine"))
+need("10b-can-arrived", "showsOldFilm", False)
+need("10b-can-arrived", "filmLate", False)
+
 prints = open(sys.argv[2]).read().split()
 if len(prints) < 2:
     bad.append(f"expected prints, found {prints}")

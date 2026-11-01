@@ -80,7 +80,7 @@ enum Driver {
         case "folder": bench.setSaveFolder(URL(fileURLWithPath: rest))
         case "half": bench.half = rest == "on"
         case "name": bench.nameDraft = rest
-        case "settle": await poll { bench.main?.stage == .fine || bench.pictureProblem != nil }
+        case "settle": await poll { (bench.main?.stage == .fine && !bench.showsOldFilm) || bench.pictureProblem != nil }
         case "idle": await poll(seconds: 300) { !bench.batchRunning && bench.printingIDs.isEmpty }
         case "wait": try? await Task.sleep(for: .milliseconds(numbers.first ?? 0))
         case "shot": shot(rest)
@@ -189,6 +189,8 @@ enum Driver {
             out["developed"] = f.isDeveloped
             out["hold"] = bench.hold(f) ?? ""
         }
+        out["filmLate"] = bench.filmLate
+        out["showsOldFilm"] = bench.showsOldFilm
         if let p = bench.main { out["picture"] = "\(p.stage) \(p.key.film)" }
         if let p = bench.pictureProblem { out["pictureProblem"] = p }
         if let p = bench.printError { out["printError"] = p }

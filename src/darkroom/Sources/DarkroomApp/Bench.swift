@@ -135,7 +135,11 @@ final class Bench: ObservableObject {
     /// The selection while an empty tab has nothing to show it on.
     private var heldID: String?
     @Published private(set) var current: Frame?
-    @Published private(set) var main: Picture?
+    @Published private(set) var main: Picture? {
+        didSet { if main?.key == workKeys.first { filmLate = false } }
+    }
+    /// The picture has been the wrong film for more than a moment.
+    @Published private(set) var filmLate = false
     @Published private(set) var compare: Picture?
     @Published private(set) var comparison: Comparison?
     @Published private(set) var pictureProblem: String?
@@ -172,6 +176,7 @@ final class Bench: ObservableObject {
     private var rescanTask: Task<Void, Never>?
     private var work: Task<Void, Never>?
     private var workKeys: [PictureKey] = []
+    private var lateTask: Task<Void, Never>?
     private var batchTask: Task<Void, Never>?
 
     private var loadedFilms: [String: DarkroomFilm] = [:]
@@ -638,11 +643,16 @@ final class Bench: ObservableObject {
         return Comparison(film: shot, label: label, wipes: wipes, developingLabel: right)
     }
 
+    /// The enlarger still shows the film it had before this one was picked.
+    var showsOldFilm: Bool { main.map { $0.key != workKeys.first } ?? false }
+
     /// Puts the best picture already held on the bench at once, then works up
     /// through the stages. Whatever was running for another key is cancelled.
     private func develop() {
         guard let frame = current else {
             work?.cancel()
+            lateTask?.cancel()
+            filmLate = false
             workKeys = []
             main = nil
             compare = nil
@@ -659,9 +669,23 @@ final class Bench: ObservableObject {
         guard keys != workKeys else { return }
         workKeys = keys
         work?.cancel()
+        lateTask?.cancel()
+        filmLate = false
         pictureProblem = nil
 
-        main = cache[mainKey] ?? bestStandIn(frame, key: mainKey)
+        // G1 holds: only a developed picture of this frame stays up, and only
+        // until its film arrives. The label and the chip say it is the old one.
+        if let held = cache[mainKey] {
+            main = held
+        } else if let old = main, old.isDeveloped, old.key.frame == mainKey.frame {
+            lateTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(200))
+                guard let self, !Task.isCancelled, self.showsOldFilm else { return }
+                self.filmLate = true
+            }
+        } else {
+            main = bestStandIn(frame, key: mainKey)
+        }
         compare = sideKey.flatMap { cache[$0] }
         guard frame.isReadable else { return }
         let others = films
@@ -710,7 +734,9 @@ final class Bench: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
-            guard !Task.isCancelled, (main?.stage ?? .thumbnail) < .quick else { return }
+            guard !Task.isCancelled, (main?.stage ?? .thumbnail) < .quick || showsOldFilm else { return }
+            if showsOldFilm { main = nil }
+            filmLate = false
             pictureProblem = Self.reason(error)
             if cardGone == nil, FileManager.default.fileExists(atPath: frame.file.url.path) {
                 broken.insert(frame.id)

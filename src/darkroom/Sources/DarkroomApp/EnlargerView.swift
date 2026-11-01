@@ -82,6 +82,9 @@ private struct PictureStage: View {
         ZStack {
             Color.clear
             stage
+                .overlay(alignment: .top) {
+                    if bench.filmLate { Chip(text: "DEVELOPING", color: Theme.accent, backed: true).padding(8) }
+                }
                 .aspectRatio(aspect, contentMode: .fit)
                 .background(GeometryReader { geo in
                     Color.clear
@@ -131,9 +134,11 @@ private struct PictureStage: View {
                 Rectangle().fill(Theme.accent).frame(width: 2).offset(x: x - 1)
                 Chip(text: bench.comparison?.label ?? "", color: Theme.accent, backed: true)
                     .padding(8)
-                Chip(text: bench.comparison?.developingLabel ?? "", color: Theme.blue, backed: true)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                if !bench.showsOldFilm {
+                    Chip(text: bench.comparison?.developingLabel ?? "", color: Theme.blue, backed: true)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in

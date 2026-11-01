@@ -81,3 +81,11 @@ dump 9b-empty-tab
 filter shotOn
 wait 200
 dump 9c-back
+
+filter all
+select IMG_4005
+settle
+can GOLD
+dump 10-can-pick
+settle
+dump 10b-can-arrived
