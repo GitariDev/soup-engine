@@ -11,18 +11,19 @@ struct TrayView: View {
             } else {
                 Kicker("PRINT TRAY")
             }
-            ScrollView(.vertical, showsIndicators: false) {
+            ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 11) {
-                    if let batch = bench.batch { batchSection(batch) }
                     if let frame = bench.current {
                         middle(frame)
                     } else if !bench.visible.isEmpty {
                         dimText("Choose a frame on the strip.")
                     }
+                    if let batch = bench.batch, batch.finished { batchSection(batch) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: .infinity)
+            if let batch = bench.batch, !batch.finished { batchSection(batch) }
             if let frame = bench.current {
                 foot(frame)
             } else {
@@ -75,25 +76,25 @@ struct TrayView: View {
         Kicker("DEVELOPING ON")
         Text("No film yet").font(Theme.display(24)).foregroundColor(Theme.text)
         dimText("Straight raw, shown as a negative carrier with no film loaded.")
-        Text("Pick a can from the shelf to print")
-            .font(Theme.font(13)).foregroundColor(Theme.accent)
-            .modifier(Boxed())
         saveTo
     }
 
     @ViewBuilder private func printed(_ frame: Frame) -> some View {
         if frame.cardPrint != nil, frame.deskPrints.isEmpty {
-            dimText("\(frame.file.stem). The print on the card stays as it is.")
+            dimText("\(frame.file.stem). The print on the card stays as it is.\(shotOnSentence(frame))")
         } else if let print = frame.deskPrints.last {
-            dimText("\(frame.file.stem). The print is in \(bench.place(print.url.deletingLastPathComponent())).")
+            dimText("\(frame.file.stem). The print is in \(bench.place(print.url.deletingLastPathComponent())).\(shotOnSentence(frame))")
             finderLink(print.url)
         }
-        if let shot = frame.shotOnFilm { dimText("Shot on \(Film.display(shot.film))") }
         developingOn(frame)
         printControls(frame)
     }
 
-    /// Where the print goes, what it is called and how big, then why it waits.
+    private func shotOnSentence(_ frame: Frame) -> String {
+        frame.shotOnFilm.map { " Shot on \(Film.display($0.film))." } ?? ""
+    }
+
+    /// Where the print goes, what it is called and how big.
     @ViewBuilder private func printControls(_ frame: Frame) -> some View {
         saveTo
         if frame.canPrint {
@@ -102,11 +103,12 @@ struct TrayView: View {
             Kicker("SIZE")
             sizeMenu(frame)
         }
-        holdLine(frame)
     }
 
-    /// Pinned: what grows here grows upward, so Print never moves.
+    /// Pinned: what grows here grows upward, so Print never moves, and why
+    /// Print waits can never scroll away from the button it explains.
     @ViewBuilder private func foot(_ frame: Frame) -> some View {
+        holdLine(frame)
         printedLine(frame.id)
         printButton(frame, printTitle(frame))
         dimText("The CR2 is not changed.").font(Theme.font(11))
@@ -165,7 +167,6 @@ struct TrayView: View {
         Kicker("DEVELOPING ON")
         if let film = frame.developingCan {
             Text(fullName(film)).font(Theme.display(24)).foregroundColor(Theme.text)
-            dimText("Full raw · \(pixels(frame, half: false))")
         } else {
             Text("No film yet").font(Theme.display(24)).foregroundColor(Theme.text)
             dimText("Straight raw, shown as a negative carrier with no film loaded.")
@@ -173,7 +174,10 @@ struct TrayView: View {
     }
 
     @ViewBuilder private func holdLine(_ frame: Frame) -> some View {
-        if let hold = bench.hold(frame) {
+        if !bench.isUnreadable(frame), frame.state == .noRecord {
+            Text("Pick a can from the shelf to print")
+                .font(Theme.font(13)).foregroundColor(Theme.accent).modifier(Boxed())
+        } else if let hold = bench.hold(frame) {
             Text(hold).font(Theme.font(13)).foregroundColor(Theme.accent).modifier(Boxed())
         }
     }
@@ -209,11 +213,11 @@ struct TrayView: View {
 
     private func sizeMenu(_ frame: Frame) -> some View {
         Menu {
-            Button("Full · \(pixels(frame, half: false)) · JPEG 92") { bench.half = false }
+            Button("Full raw · \(pixels(frame, half: false)) · JPEG 92") { bench.half = false }
             Button("Half · \(pixels(frame, half: true)) · JPEG 92") { bench.half = true }
         } label: {
             HStack {
-                Text("\(bench.half ? "Half" : "Full") · \(pixels(frame, half: bench.half)) · JPEG 92")
+                Text("\(bench.half ? "Half" : "Full raw") · \(pixels(frame, half: bench.half)) · JPEG 92")
                 Spacer(minLength: 4)
                 Text("▾")
             }
