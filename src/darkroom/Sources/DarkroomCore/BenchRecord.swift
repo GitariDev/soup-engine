@@ -15,6 +15,9 @@ public struct DeskPrint: Sendable, Equatable, Codable {
     public var url: URL { URL(fileURLWithPath: path) }
 }
 
+/// A file counts as a print when it is there and not empty. Reads the volume.
+func isPrint(_ url: URL) -> Bool { (Paths.fileSize(url) ?? 0) > 0 }
+
 public enum BenchRecordError: Error, LocalizedError {
     case cannotSetAside(URL)
     public var errorDescription: String? {
@@ -29,6 +32,9 @@ public enum BenchRecordError: Error, LocalizedError {
 ///
 /// A print whose file is gone stops counting but stays in the file, so a drive
 /// that is only unplugged brings its prints back at the next refresh.
+///
+/// One path is one print. A file printed to a name that came free replaces the
+/// record of the file that had it, under whatever frame that was.
 public struct BenchRecord: Sendable, Equatable {
     public let directory: URL
     public private(set) var choices: [String: String] = [:]
@@ -62,7 +68,10 @@ public struct BenchRecord: Sendable, Equatable {
     /// Reads `bench.json`. A file that cannot be understood is moved aside
     /// under a new name and the record starts empty; `setAside` says where.
     /// Throws only if that move fails, so the old file is never overwritten.
-    public static func load(directory: URL = BenchRecord.defaultDirectory) throws -> BenchRecord {
+    /// With `checkPrints` off no print counts until `take(_:)` says so: prints
+    /// can be on any volume, and the main actor cannot wait on one.
+    public static func load(directory: URL = BenchRecord.defaultDirectory,
+                            checkPrints: Bool = true) throws -> BenchRecord {
         var record = BenchRecord(directory: directory)
         guard Paths.exists(record.file) else { return record }
         let decoder = JSONDecoder()
@@ -70,13 +79,26 @@ public struct BenchRecord: Sendable, Equatable {
         if let data = try? Data(contentsOf: record.file),
            let stored = try? decoder.decode(Stored.self, from: data), stored.version == version {
             record.choices = stored.choices
-            record.prints = stored.prints
+            record.prints = keepingNewest(stored.prints)
             record.saveFolder = stored.saveFolder.map { URL(fileURLWithPath: $0, isDirectory: true) }
-            record.refresh()
+            if checkPrints { record.refresh() }
         } else {
             record.setAside = try moveAside(record.file)
         }
         return record
+    }
+
+    /// A record made before one path meant one print can hold a path twice.
+    private static func keepingNewest(_ prints: [String: [DeskPrint]]) -> [String: [DeskPrint]] {
+        var newest: [String: (identity: String, print: DeskPrint)] = [:]
+        for (identity, list) in prints {
+            for print in list where newest[print.path].map({ $0.print.printedAt <= print.printedAt }) ?? true {
+                newest[print.path] = (identity, print)
+            }
+        }
+        return Dictionary(grouping: newest.values, by: \.identity).mapValues { held in
+            held.map(\.print).sorted { ($0.printedAt, $0.path) < ($1.printedAt, $1.path) }
+        }
     }
 
     private static func moveAside(_ file: URL) throws -> URL {
@@ -109,8 +131,21 @@ public struct BenchRecord: Sendable, Equatable {
     /// Checks each desk print against the disk. An empty file is not a print.
     public mutating func refresh() {
         present = []
-        for list in prints.values {
-            for print in list where (Paths.fileSize(print.url) ?? 0) > 0 { present.insert(print.path) }
+        take(presence())
+    }
+
+    /// Each desk print's path, and whether a print is there now. It reads the
+    /// volumes the prints are on, so it never runs on the main actor.
+    public func presence() -> [String: Bool] {
+        var out: [String: Bool] = [:]
+        for print in prints.values.joined() { out[print.path] = isPrint(print.url) }
+        return out
+    }
+
+    /// What `presence` found. A print added since it looked is not in it, and stays.
+    public mutating func take(_ presence: [String: Bool]) {
+        for (path, there) in presence {
+            if there { present.insert(path) } else { present.remove(path) }
         }
     }
 
@@ -119,9 +154,14 @@ public struct BenchRecord: Sendable, Equatable {
         (prints[identity] ?? []).filter { present.contains($0.path) }
     }
 
+    /// Just written, so the disk is not asked.
     public mutating func addPrint(_ print: DeskPrint, identity: String) {
+        for key in Array(prints.keys) {
+            prints[key]?.removeAll { $0.path == print.path }
+            if prints[key]?.isEmpty == true { prints[key] = nil }
+        }
         prints[identity, default: []].append(print)
-        if (Paths.fileSize(print.url) ?? 0) > 0 { present.insert(print.path) }
+        present.insert(print.path)
     }
 
     /// Picks a can for a frame. Picking the film it would develop on anyway is

@@ -16,6 +16,27 @@ public struct ShotOn: Sendable, Equatable {
     }
 }
 
+/// One real print of a frame, as a file.
+public struct StackPrint: Sendable, Equatable, Identifiable {
+    public let url: URL
+    /// Nil for a card print with no tag: the film is not known, so none is named.
+    public let film: String?
+    /// The `FLM_` beside the CR2, rather than a print this app made.
+    public let isCardPrint: Bool
+
+    public init(url: URL, film: String?, isCardPrint: Bool) {
+        self.url = url
+        self.film = film
+        self.isCardPrint = isCardPrint
+    }
+
+    public var id: String { url.path }
+    public var name: String { url.lastPathComponent }
+
+    /// Reads the volume the print is on, so it never runs on the main actor.
+    public var isOnDisk: Bool { isPrint(url) }
+}
+
 /// A CR2 with everything known about it. The state follows the plan's table:
 /// exactly one of four, and Not developed is a separate question.
 public struct Frame: Sendable, Equatable, Identifiable {
@@ -92,6 +113,16 @@ public struct Frame: Sendable, Equatable, Identifiable {
 
     /// Every film this frame is printed on, the card's first.
     public var printedFilms: [String] { [cardPrint?.film].compactMap { $0 } + deskPrints.map(\.film) }
+
+    /// Every print of this frame on disk as of the last look: the card's first,
+    /// then this app's in the order made. One file is one print, so this is the
+    /// count. `printedFilms` is not: a card print with no tag has no film to list.
+    public var stack: [StackPrint] {
+        let card = cardPrint.map { StackPrint(url: $0.url, film: $0.film, isCardPrint: true) }
+        let desk = deskPrints.map { StackPrint(url: $0.url, film: $0.film, isCardPrint: false) }
+        var seen = Set<String>()
+        return ([card].compactMap { $0 } + desk).filter { seen.insert($0.url.standardizedFileURL.path).inserted }
+    }
 
     /// A choice with no print on that film yet. Once it is printed nothing is pending.
     public var hasPendingChoice: Bool {
