@@ -124,8 +124,23 @@ out/sim700d: $(SIM700D_SRC) tools/sim700d/ml.h ml/700d/soupeng.h $(SIM700D_ENG) 
 	   $(SIM700D_ENG) -lm -lpthread 2>&1 | grep -v 'reducing alignment' || true
 	@test -x $@
 
-sim700d: all out/previewcheck out/sim700d
-	@sh tools/sim700d.sh $(firstword $(SAMPLES))
+# With no raws in samples/ (which is every fresh clone: they are the owner's
+# photos and are not committed) it runs on out/public.CR2, made from one frame
+# of doc/stocks.jpg. SIM700D_SAMPLE=out/public.CR2 picks that one regardless,
+# and it is the only sample whose SE_SIM_DUMP pictures are fit to publish.
+SIM700D_SAMPLE ?= $(or $(firstword $(SAMPLES)),out/public.CR2)
+
+sim700d: all out/previewcheck out/sim700d $(filter out/public.CR2,$(SIM700D_SAMPLE))
+	@sh tools/sim700d.sh $(SIM700D_SAMPLE)
+
+MKCR2_SRC = tools/mkcr2.c engine/se.c engine/jpeg_enc.c engine/jpeg_dec.c
+
+out/mkcr2: $(MKCR2_SRC) $(wildcard engine/*.h)
+	@mkdir -p out
+	@$(CAMTEST_CC) -o $@ $(MKCR2_SRC) -lm
+
+out/public.CR2: out/mkcr2 ../doc/stocks.jpg
+	@./out/mkcr2 ../doc/stocks.jpg $@
 
 # The camera build. Produces two files for the card:
 #   ml/build/AUTOEXEC.BIN  the 2012 binary with 262 bytes changed, same size
