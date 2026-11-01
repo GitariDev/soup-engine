@@ -10,3 +10,6 @@ samples/
 *.d
 filmdev
 out/
+
+# The desktop app
+darkroom/.build*/
