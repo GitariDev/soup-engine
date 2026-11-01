@@ -2,7 +2,7 @@
 
 Run these in order. Every command starts from the worktree's `src` folder:
 
-    cd /Users/gitaritirima/.t3/worktrees/soup-engine/feature-darkroom-desktop/src
+    cd ~/.t3/worktrees/soup-engine/feature-darkroom-desktop/src
 
 ## What nobody has verified yet
 
@@ -66,7 +66,7 @@ your own install:
 This builds a card from your samples in `out/bench-card`, an ignored folder, and
 checks its own counts:
 
-    S="/Users/gitaritirima/Documents/Workspace/Personal Projects/soup-engine/src/samples/t5i"
+    S="$HOME/Documents/Workspace/Personal Projects/soup-engine/src/samples/t5i"
     make bench S="$S"
     open -n "out/Soup Darkroom.app" --args --open "$PWD/out/bench-card"
 
@@ -90,7 +90,7 @@ in Save to here.
 The module build needs Magic Lantern's source, which is only in your main checkout.
 This points the worktree at it. I have not run this step.
 
-    ln -s "/Users/gitaritirima/Documents/Workspace/Personal Projects/soup-engine/src/vendor" vendor
+    ln -s "$HOME/Documents/Workspace/Personal Projects/soup-engine/src/vendor" vendor
     make card-700d
     COPYFILE_DISABLE=1 cp out/card-700d/ML/modules/soupeng.mo /Volumes/EOS_DIGITAL/ML/modules/
 
