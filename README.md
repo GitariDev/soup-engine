@@ -355,8 +355,10 @@ Soup Engine runs inside their work. Their builds are what let these cameras run
 any of this, and years of their reverse engineering made it possible to
 understand. They're worth supporting.
 
-The layout of the 700D's menu follows the **M-FILM** menu shown in a video by
-**@hng.spl**. None of their code was seen or used.
+The UX and UI of the 700D's menu are inspired by
+[**M-Film**](https://github.com/HNGSeries/M-Film), by
+[**@hng.spl**](https://www.instagram.com/hng.spl). The layout follows the menu
+shown in their video. None of their code was seen or used.
 
 Soup Engine isn't Magic Lantern's project, so please don't take problems with
 it to them. Open an issue here instead.

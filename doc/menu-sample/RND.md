@@ -1,10 +1,11 @@
 # INFO menu for the EOS 700D: R&D notes
 
 `index.html` is the design, and it opens in a browser. This file is how that
-design runs on the camera, and what was measured to get there. The layout
-follows the M-FILM menu in the video by @hng.spl (5D Mark III); nothing of
-theirs was available to read, so all of this comes from the video and from
-Soup Engine's own source.
+design runs on the camera, and what was measured to get there. The UX and UI
+are inspired by [M-Film](https://github.com/HNGSeries/M-Film), by
+[@hng.spl](https://www.instagram.com/hng.spl), and the layout follows the menu
+in their video (5D Mark III). This was built from that video and from Soup
+Engine's own source; M-Film's code was not read or used.
 
 ## Where this stands
 
