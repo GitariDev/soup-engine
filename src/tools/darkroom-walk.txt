@@ -245,6 +245,22 @@ rescan
 settle
 dump s16b-others-back
 
+# The picture is the file: trade two files on disk, and the pictures trade too.
+stack back
+settle
+dump s16c-file-a
+stack back
+settle
+dump s16d-file-b
+swap 1 2
+rescan
+settle
+dump s16e-file-b-now-a
+stack next
+settle
+dump s16f-file-a-now-b
+swap 1 2
+
 # The card's print is the file beside the CR2: half size, film from its tag.
 select IMG_3991
 settle

@@ -17,12 +17,13 @@ import SwiftUI
 ///     settle                            idle
 ///     wait <ms>                         shot <name>
 ///     dump <label>                      quit
-///     stack <original|back|next|film>   lose <n>   find
+///     stack <original|back|next|film>   lose <n>   find   swap <n> <m>
 ///     rescan
 ///
 /// `stack` clicks the bar under the picture. `lose` moves the frame's nth print
-/// out of SOUP_SAVE, as a user would in Finder, and `find` moves them all back.
-/// Neither touches any other folder. `rescan` is what coming back to the app does.
+/// out of SOUP_SAVE, as a user would in Finder, `find` moves them all back, and
+/// `swap` trades two prints' files. None touches any other folder. `rescan` is
+/// what coming back to the app does.
 ///
 /// `settle` waits for the fine render, `idle` for a batch to finish. `dump`
 /// prints one JSON line. `shot` writes <SOUP_SHOTS>/<name>.png: those hold
@@ -90,6 +91,7 @@ enum Driver {
         case "stack":
             if let r = DriverAnchors.marks[rest] { await click(CGPoint(x: r.midX, y: r.midY)) } else { complain(verb, rest) }
         case "lose": lose(Int(rest) ?? 0, bench)
+        case "swap" where numbers.count == 2: swap(Int(numbers[0]), Int(numbers[1]), bench)
         case "find": find()
         case "rescan":
             bench.rescan()
@@ -129,20 +131,37 @@ enum Driver {
         ProcessInfo.processInfo.environment["SOUP_SAVE"].map { URL(fileURLWithPath: $0 + ".aside", isDirectory: true) }
     }
 
-    /// Only ever a file directly in the throwaway save folder.
-    private static func lose(_ n: Int, _ bench: Bench) {
+    /// The frame's nth print, only if it is directly in the throwaway save folder.
+    private static func saved(_ n: Int, _ bench: Bench) -> URL? {
         let stack = bench.stack
-        guard let aside, let save = ProcessInfo.processInfo.environment["SOUP_SAVE"], stack.indices.contains(n - 1),
+        guard let save = ProcessInfo.processInfo.environment["SOUP_SAVE"], stack.indices.contains(n - 1),
               stack[n - 1].url.deletingLastPathComponent().resolvingSymlinksInPath().path
-                == URL(fileURLWithPath: save).resolvingSymlinksInPath().path else {
+                == URL(fileURLWithPath: save).resolvingSymlinksInPath().path else { return nil }
+        return stack[n - 1].url
+    }
+
+    private static func lose(_ n: Int, _ bench: Bench) {
+        guard let aside, let url = saved(n, bench) else {
             complain("lose", "\(n)")
             return
         }
-        let url = stack[n - 1].url
         try? FileManager.default.createDirectory(at: aside, withIntermediateDirectories: true)
         do {
             try FileManager.default.moveItem(at: url, to: aside.appendingPathComponent(url.lastPathComponent))
         } catch { complain("lose", "\(url.lastPathComponent)") }
+    }
+
+    private static func swap(_ n: Int, _ m: Int, _ bench: Bench) {
+        guard let a = saved(n, bench), let b = saved(m, bench) else {
+            complain("swap", "\(n) \(m)")
+            return
+        }
+        let held = a.appendingPathExtension("swap")
+        do {
+            try FileManager.default.moveItem(at: a, to: held)
+            try FileManager.default.moveItem(at: b, to: a)
+            try FileManager.default.moveItem(at: held, to: b)
+        } catch { complain("swap", "\(n) \(m)") }
     }
 
     private static func find() {
@@ -216,6 +235,12 @@ enum Driver {
             .write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + ".png"))
     }
 
+    /// The pixels themselves, so a walk can tell one picture from another.
+    private static func sum(_ image: CGImage) -> Int {
+        guard let data = image.dataProvider?.data as Data? else { return 0 }
+        return data.reduce(0) { ($0 &* 31 &+ Int($1)) & 0xffffffff }
+    }
+
     private static func dump(_ label: String, _ bench: Bench) {
         let c = bench.counts
         var out: [String: Any] = [
@@ -245,6 +270,7 @@ enum Driver {
         if let p = bench.main {
             out["picture"] = "\(p.stage) \(p.key.film)"
             out["pictureSize"] = "\(p.image.width)x\(p.image.height)"
+            out["pictureSum"] = sum(p.image)
         }
         out["stack"] = bench.stack.count
         out["stackFiles"] = bench.stack.map(\.name).joined(separator: " ")

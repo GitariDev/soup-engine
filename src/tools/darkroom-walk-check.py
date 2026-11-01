@@ -174,6 +174,19 @@ need("s16-name-came-free", "state", "printed")
 stack("s16b-others-back", PORTRA, AGAIN, VELVIA)    # the one aside could not come back over it
 need("s16b-others-back", "stackFilms", "PORTRA VELVIA VELVIA")
 
+# Only the file can do this: a render of the film would not change.
+shown("s16c-file-a", AGAIN)
+shown("s16d-file-b", PORTRA)
+shown("s16e-file-b-now-a", PORTRA)
+shown("s16f-file-a-now-b", AGAIN)
+sum_of = lambda label: log.get(label, {}).get("pictureSum")
+if sum_of("s16c-file-a") in (None, sum_of("s16d-file-b")):
+    bad.append("two prints on different films are the same picture")
+if sum_of("s16e-file-b-now-a") != sum_of("s16c-file-a"):
+    bad.append("the enlarger did not show the file at this path")
+if sum_of("s16f-file-a-now-b") != sum_of("s16d-file-b"):
+    bad.append("the enlarger did not show the file at this path, a step along")
+
 stack("s17-card-print", "FLM_3991.JPG")
 shown("s17-card-print", "FLM_3991.JPG")
 need("s17-card-print", "right", "PRINT 1 OF 1 · PROVIA")
