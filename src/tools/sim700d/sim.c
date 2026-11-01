@@ -69,6 +69,7 @@ extern int se_nstocks, se_stock_index, se_stock_id, se_auto, se_size, se_waiting
 extern int se_pct; extern const char *se_stage;
 extern int se_progress_text(char *buf, size_t cap);
 extern volatile int se_busy, se_q_head, se_q_tail;
+void se_roll_init(void);
 extern int se_q_count(void), se_pending(void);
 extern uint32_t se_name_id(const char *);
 extern int se_ui_avail, se_ui_count(void), se_ui_stock(int), se_ui_pos(int);
@@ -117,7 +118,7 @@ struct sim_file { int fd, roll; };
 /* The roll's way to the card, watched: the name it asked for, how often it
  * opened, and a switch for the card going bad (1 no open, 2 half a line). */
 static char g_roll_name[64];
-static int  g_roll_opens, g_roll_bad_card, g_mkdir_data;
+static int  g_roll_opens, g_roll_bad_card, g_roll_no_size, g_mkdir_data;
 struct fio_file { struct file_info fi; };
 struct fio_dirent { DIR *d; };
 
@@ -172,6 +173,7 @@ void FIO_CloseFile(struct sim_file *f) { if (f) { close(f->fd); free(f); } }
 int FIO_GetFileSize(const char *name, uint32_t *size)
 {
     char b[1024]; struct stat st;
+    if (g_roll_no_size && strstr(name, "SOUPROLL")) return -1;
     if (stat(host_path(name, b, sizeof b), &st) != 0) return -1;
     *size = (uint32_t)st.st_size; return 0;
 }
@@ -1104,6 +1106,12 @@ int main(int argc, char **argv)
         counter(100, 614); look();
         ROLL_FROM(mark);
         check(n == 1 && g_rec[0].from_no == 612 && g_rec[0].to_no == 614 && g_rec[0].count == 3, "and the card back, nothing was lost");
+
+        /* a size the card would not give at power-on is not an absent file */
+        mark = roll_size(); g_roll_no_size = 1;
+        se_roll_init();
+        g_roll_no_size = 0;
+        check(mark > 0 && roll_size() == mark, "a refused size at init does not cost the roll what it holds");
 
         /* a film change with the card refusing cannot wait: the old range goes */
         mark = roll_size(); g_roll_bad_card = 1; se_stock_index = film_a;

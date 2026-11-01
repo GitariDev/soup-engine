@@ -153,7 +153,9 @@ void se_roll_init(void)
     uint32_t sz;
     FILE *f;
     if (FIO_GetFileSize(SE_ROLL_FILE, &sz) == 0) return;
-    f = FIO_CreateFile(SE_ROLL_FILE);
+    /* a second opinion before a create that would delete it */
+    f = FIO_OpenFile(SE_ROLL_FILE, O_RDONLY | O_SYNC);
+    if (!f) f = FIO_CreateFile(SE_ROLL_FILE);
     if (f) FIO_CloseFile(f);
 }
 
