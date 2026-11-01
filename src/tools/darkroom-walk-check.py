@@ -59,6 +59,8 @@ need("10-can-pick", "picture", lambda p: (p or "").split(" ")[0] in ("quick", "f
 need("10b-can-arrived", "showsOldFilm", False)
 need("10b-can-arrived", "filmLate", False)
 
+need("1-found", "firstFilms", "PORTRA GOLD")
+
 prints = open(sys.argv[2]).read().split()
 if len(prints) < 2:
     bad.append(f"expected prints, found {prints}")

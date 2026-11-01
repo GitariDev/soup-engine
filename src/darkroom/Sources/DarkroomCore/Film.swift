@@ -30,6 +30,12 @@ public struct FilmCan: Sendable, Equatable {
     ]
 
     public static func forFilm(_ name: String) -> FilmCan { table[Film.key(name)] ?? unknown }
+
+    /// `FILMS_DEFAULT`'s order: colour, slide, black and white, cine.
+    static let cameraOrder = ["PORTRA", "GOLD", "CLASSIC NEG", "NOSTALGIC NEG", "REALA ACE",
+                              "PROVIA", "ASTIA", "VELVIA", "CLASSIC CHROME",
+                              "ACROS",
+                              "ETERNA", "BLEACH BYPASS", "SOUP 800"]
 }
 
 public struct Film: Sendable, Equatable, Identifiable {
@@ -135,6 +141,14 @@ public struct FilmShelf: Sendable {
     }
 
     public func film(named name: String) -> Film? { byKey[Film.key(name)] }
+
+    /// As the camera lists them. A film it does not know follows, as found.
+    public var ordered: [Film] {
+        let rank = Dictionary(uniqueKeysWithValues: FilmCan.cameraOrder.enumerated().map { ($1, $0) })
+        return films.enumerated()
+            .sorted { (rank[$0.element.id] ?? Int.max, $0.offset) < (rank[$1.element.id] ?? Int.max, $1.offset) }
+            .map(\.element)
+    }
 
     /// Reads the shelf again from disk.
     public mutating func reload() {

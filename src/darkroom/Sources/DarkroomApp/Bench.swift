@@ -212,7 +212,7 @@ final class Bench: ObservableObject {
         saveFolder = record.saveFolder ?? Destination.defaultFolder()
         shelf = FilmShelf(cardFolder: nil, addedFolder: support.appendingPathComponent("Films", isDirectory: true),
                           bundledFolder: Self.stocksFolder)
-        films = shelf.films
+        films = shelf.ordered
         notice = problem
         checkSaveFolder()
         watchSystem()
@@ -333,7 +333,7 @@ final class Bench: ObservableObject {
         self.shelf = shelf
         self.roll = roll
         rollNumber = roll?.latestRoll
-        films = shelf.films
+        films = shelf.ordered
         loadFilms()
         for await event in FrameScanner().stream(opened) {
             guard token == generation else { return }
@@ -465,8 +465,8 @@ final class Bench: ObservableObject {
         roll = fresh.2
         rollNumber = fresh.2?.latestRoll
         shelf = fresh.3
-        if films != shelf.films {
-            films = shelf.films
+        if films != shelf.ordered {
+            films = shelf.ordered
             loadFilms()
         }
         let next = Frame.assemble(files, roll: roll, record: &record, shelf: shelf)
@@ -600,7 +600,7 @@ final class Bench: ObservableObject {
     func addFilm(from url: URL) {
         do {
             try shelf.addFilm(from: url)
-            films = shelf.films
+            films = shelf.ordered
             notice = nil
             loadFilms()
             let all = frames.map { $0.updated(record: &record, shelf: shelf) }

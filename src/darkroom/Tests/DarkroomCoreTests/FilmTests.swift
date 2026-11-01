@@ -100,4 +100,10 @@ final class FilmTests: XCTestCase {
             XCTAssertFalse(film.description.isEmpty, film.name)
         }
     }
+
+    func testShelfReadsInTheCamerasOrderWithUnknownFilmsAfter() throws {
+        let r = try Rig(films: ["VELVIA", "ACROS", "ZED", "GOLD", "PORTRA", "ALPHA", "ETERNA"])
+        XCTAssertEqual(r.shelf.ordered.map(\.name), ["PORTRA", "GOLD", "VELVIA", "ACROS", "ETERNA", "ALPHA", "ZED"])
+        XCTAssertEqual(r.shelf.ordered.count, r.shelf.films.count)
+    }
 }

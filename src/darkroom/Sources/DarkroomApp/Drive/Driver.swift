@@ -190,6 +190,7 @@ enum Driver {
             out["hold"] = bench.hold(f) ?? ""
         }
         out["filmLate"] = bench.filmLate
+        out["firstFilms"] = bench.films.prefix(2).map(\.name).joined(separator: " ")
         out["showsOldFilm"] = bench.showsOldFilm
         if let p = bench.main { out["picture"] = "\(p.stage) \(p.key.film)" }
         if let p = bench.pictureProblem { out["pictureProblem"] = p }

@@ -52,11 +52,13 @@ struct ShelfView: View {
             bench.choose(film: clears ? nil : film)
         } label: {
             CanView(film: film, selected: selected)
-                .overlay(alignment: .bottomLeading) {
+                .overlay(alignment: .top) {
                     if shotOn {
-                        Text("SHOT ON").font(Theme.font(10, .bold)).tracking(1)
-                            .foregroundColor(Theme.accent).fixedSize()
-                            .offset(x: 64, y: -8)
+                        Text("SHOT ON").font(Theme.tight(9.5, .bold)).tracking(0.95)
+                            .foregroundColor(Theme.ink).fixedSize()
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.accent))
+                            .offset(y: -10)
                     }
                 }
                 .contentShape(Rectangle())
