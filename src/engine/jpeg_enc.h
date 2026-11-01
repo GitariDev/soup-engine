@@ -33,6 +33,7 @@ typedef struct {
     float exposure_time;     /* seconds; 0 to omit */
     float aperture;          /* f-number; 0 to omit */
     int   iso;               /* 0 to omit */
+    int   orientation;       /* EXIF 1..8; 0 is 1, normal */
 } se_jpeg_exif;
 
 typedef struct {

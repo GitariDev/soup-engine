@@ -54,8 +54,12 @@ const char *sb_film_desc(const sb_film *f);
 /* -------------------------------------------- a negative, decoded and held */
 typedef struct sb_negative sb_negative;
 
-/* Decode the sensor data once. NULL if the file cannot be read as a CR2. */
-sb_negative *sb_negative_open(const char *path);
+/*
+ * Decode the sensor data once. NULL if the file cannot be read as a CR2, or if
+ * a non-zero *cancel stopped it. A cold frame off a card takes seconds, nearly
+ * all of it reading, so a NULL cancel is for callers that will wait.
+ */
+sb_negative *sb_negative_open(const char *path, const volatile int *cancel);
 void         sb_negative_close(sb_negative *n);
 
 /* The size a render comes out at, for a scale of 1, 2 or 4. */

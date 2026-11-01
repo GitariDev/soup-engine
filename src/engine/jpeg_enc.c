@@ -227,7 +227,9 @@ static int build_exif(uint8_t *out, int cap, const se_jpeg_exif *x,
 
     ew_ascii(&w, 0, 0x010f, x->make);
     ew_ascii(&w, 0, 0x0110, x->model);
-    ew_short(&w, 0, 0x0112, 1);                 /* Orientation: normal */
+    /* Orientation, normal unless the caller says: inline, so the block's
+     * length does not change */
+    ew_short(&w, 0, 0x0112, x->orientation > 0 ? (unsigned)x->orientation : 1);
     ew_ascii(&w, 0, 0x0131, x->software);
     ew_ascii(&w, 0, 0x0132, x->datetime);
     ew_long (&w, 0, 0x8769, (uint32_t)w.ifd1);  /* -> Exif IFD */
