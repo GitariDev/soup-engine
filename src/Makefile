@@ -212,3 +212,41 @@ contact: all
 clean:
 	@$(MAKE) -s -C host clean
 	@rm -rf out/arm
+
+# Soup Darkroom, the desktop app in darkroom/. Everything here is relative to
+# src/ and quoted, since a checkout may have a space in its path. Its build goes
+# in its own folder, so it can run beside another swift build of the package.
+DARKROOM_BUILD = .build-pack
+DARKROOM_APP   = out/Soup Darkroom.app
+DARKROOM_RES   = $(DARKROOM_APP)/Contents/Resources
+
+.PHONY: darkroom darkroom-test darkroom-parity bench
+
+darkroom: out/SoupDarkroom.icns
+	@cd darkroom && swift build -c release --build-path $(DARKROOM_BUILD) --product SoupDarkroom
+	@rm -rf "$(DARKROOM_APP)"
+	@mkdir -p "$(DARKROOM_APP)/Contents/MacOS" "$(DARKROOM_RES)/stocks"
+	@cp darkroom/$(DARKROOM_BUILD)/release/SoupDarkroom "$(DARKROOM_APP)/Contents/MacOS/"
+	@cp darkroom/Resources/Info.plist "$(DARKROOM_APP)/Contents/"
+	@cp stocks/*.fs "$(DARKROOM_RES)/stocks/"
+	@if [ -d darkroom/Resources/Fonts ]; then cp -R darkroom/Resources/Fonts "$(DARKROOM_RES)/"; fi
+	@cp ../LICENSE out/SoupDarkroom.icns "$(DARKROOM_RES)/"
+	@codesign -s - --force --deep "$(DARKROOM_APP)"
+	@echo "$(DARKROOM_APP)"
+
+out/SoupDarkroom.icns: darkroom/Resources/mkicon.py
+	@mkdir -p out
+	@python3 darkroom/Resources/mkicon.py $@
+
+darkroom-test:
+	@cd darkroom && swift test --build-path $(DARKROOM_BUILD)
+
+# S is the samples folder. Output goes under out/, as these are the owner's photos.
+darkroom-parity:
+	@[ -n "$(S)" ] || { echo "usage: make darkroom-parity S=<samples dir>"; exit 2; }
+	@sh tools/darkroom-parity.sh "$(S)"
+
+# The fixture card, in out/bench-card. See tools/mkbench.py.
+bench:
+	@[ -n "$(S)" ] || { echo "usage: make bench S=<samples dir>"; exit 2; }
+	@sh tools/mkbench.sh "$(S)"

@@ -16,8 +16,10 @@ struct Command {
 let commands = [
     Command(name: "render", usage: "render <CR2> <film.fs|straight> <scale> <out.ppm|jpg>", run: render),
     Command(name: "print", usage: "print <CR2> <film.fs|straight> <outdir> [--half] [--name <file>]", run: printFrame),
-    Command(name: "probe", usage: "probe <CR2>", run: probe),
+    Command(name: "probe", usage: "probe <CR2> [--json]", run: probe),
     Command(name: "bench", usage: "bench <CR2> <film.fs|straight>", run: bench),
+    Command(name: "scan", usage: "scan <path> [--json] [--record [dir]] [--stocks <dir>]", run: scan),
+    Command(name: "cards", usage: "cards [--json]", run: cards),
 ]
 
 struct UsageError: Error {}
@@ -70,13 +72,24 @@ func printFrame(_ args: [String]) async throws {
 }
 
 func probe(_ args: [String]) async throws {
-    guard args.count == 1 else { throw UsageError() }
+    guard args.count == 1 || (args.count == 2 && args[1] == "--json") else { throw UsageError() }
     var facts = sb_cr2_facts()
     guard sb_cr2_probe(args[0], &facts) == 0 else { throw DarkroomError.unreadable(args[0]) }
     let text = { (s: UnsafePointer<CChar>) in String(cString: s) }
     let make = withUnsafeBytes(of: facts.make) { text($0.bindMemory(to: CChar.self).baseAddress!) }
     let model = withUnsafeBytes(of: facts.model) { text($0.bindMemory(to: CChar.self).baseAddress!) }
     let date = withUnsafeBytes(of: facts.datetime) { text($0.bindMemory(to: CChar.self).baseAddress!) }
+    if args.count == 2 {
+        struct Facts: Encodable {
+            let width, height, orientation, iso: Int
+            let make, model, dateTime: String
+            let exposure, aperture: Double
+        }
+        return try json(Facts(width: Int(facts.width), height: Int(facts.height),
+                              orientation: Int(facts.orientation), iso: Int(facts.iso),
+                              make: make, model: model, dateTime: date,
+                              exposure: Double(facts.exposure_time), aperture: Double(facts.aperture)))
+    }
     print("\(facts.width)x\(facts.height) orientation \(facts.orientation)")
     print("\(make) \(model), \(date)")
     let shutter = facts.exposure_time > 0 ? 1 / facts.exposure_time : 0

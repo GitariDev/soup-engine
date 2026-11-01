@@ -1,0 +1,312 @@
+import DarkroomCore
+import SwiftUI
+
+struct TrayView: View {
+    @ObservedObject var bench: Bench
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            if let frame = bench.current {
+                content(frame)
+            } else {
+                Kicker("PRINT TRAY")
+                dimText("Choose a frame on the strip.")
+                Spacer(minLength: 0)
+            }
+            if let batch = bench.batch { batchSection(batch) }
+        }
+        .padding(16)
+        .frame(width: 270, alignment: .leading)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .leading) { Rectangle().fill(Theme.faint).frame(width: 1) }
+    }
+
+    @ViewBuilder private func content(_ frame: Frame) -> some View {
+        if bench.isUnreadable(frame) {
+            unreadable(frame)
+        } else {
+            switch frame.state {
+            case .shotOn: shotOn(frame)
+            case .yourChoice: yourChoice(frame)
+            case .noRecord: noRecord(frame)
+            case .printed: printed(frame)
+            }
+        }
+    }
+
+    // MARK: The states
+
+    private func unreadable(_ frame: Frame) -> some View {
+        Group {
+            Kicker("THIS FRAME")
+            Chip(text: "CANNOT BE READ", color: Theme.warn)
+            dimText("\(frame.file.stem). This CR2 cannot be read. It stays as it is.")
+            Spacer(minLength: 0)
+            printButton(frame, "Print to folder")
+        }
+    }
+
+    private func shotOn(_ frame: Frame) -> some View {
+        Group {
+            Kicker("THIS FRAME")
+            Chip(text: "SHOT ON \(upper(frame.shotOnFilm?.film))", color: Theme.accent)
+            dimText(Self.facts(frame))
+            developingOn(frame)
+            saveTo
+            holdLine(frame)
+            Spacer(minLength: 0)
+            printedLine(frame)
+            printButton(frame, "Print to folder")
+        }
+    }
+
+    private func yourChoice(_ frame: Frame) -> some View {
+        Group {
+            Kicker("PRINT TRAY")
+            Chip(text: "YOUR CHOICE · \(upper(frame.choice))", color: Theme.blue)
+            dimText(choiceLine(frame))
+            saveTo
+            Kicker("NAME")
+            NameField(bench: bench)
+            Kicker("SIZE")
+            sizeMenu(frame)
+            holdLine(frame)
+            Spacer(minLength: 0)
+            printedLine(frame)
+            printButton(frame, "Print to folder")
+            dimText("The CR2 is not changed.").font(Theme.font(11))
+        }
+    }
+
+    private func noRecord(_ frame: Frame) -> some View {
+        Group {
+            Kicker("THIS FRAME")
+            Chip(text: "NO FILM RECORDED", color: Theme.dim, dashed: true)
+            dimText("\(frame.file.stem). \(frame.noRecordReason ?? "") No film is assumed.")
+            Kicker("DEVELOPING ON")
+            Text("No film yet").font(Theme.serif(20)).foregroundColor(Theme.text)
+            dimText("Straight raw, shown as a negative carrier with no film loaded.")
+            Text("Pick a can from the shelf to print")
+                .font(Theme.font(13)).foregroundColor(Theme.accent)
+                .modifier(Boxed())
+            Spacer(minLength: 0)
+            printButton(frame, "Print ▸")
+        }
+    }
+
+    private func printed(_ frame: Frame) -> some View {
+        Group {
+            Kicker("THIS FRAME")
+            Chip(text: frame.printedFilms.last.map { "PRINTED · \(upper($0))" } ?? "PRINTED", color: Theme.green)
+            if frame.cardPrint != nil, frame.deskPrints.isEmpty {
+                dimText("\(frame.file.stem). The print on the card stays as it is.")
+            } else if let print = frame.deskPrints.last {
+                dimText("\(frame.file.stem). The print is in \(bench.place(print.url.deletingLastPathComponent())).")
+                finderLink(print.url)
+            }
+            if let shot = frame.shotOnFilm { dimText("Shot on \(Film.display(shot.film))") }
+            developingOn(frame)
+            saveTo
+            holdLine(frame)
+            Spacer(minLength: 0)
+            printButton(frame, "Redevelop to folder")
+        }
+    }
+
+    // MARK: The parts
+
+    private func upper(_ name: String?) -> String { name.map(Film.key) ?? "" }
+
+    private func dimText(_ text: String) -> Text {
+        Text(text).font(Theme.font(13)).foregroundColor(Theme.dim)
+    }
+
+    private func choiceLine(_ frame: Frame) -> String {
+        let film = Film.display(frame.choice ?? "")
+        if let shot = frame.shotOnFilm { return "Shot on \(Film.display(shot.film)). Redeveloping on \(film)." }
+        return "No film was recorded. Developing on \(film)."
+    }
+
+    private static func facts(_ frame: Frame) -> String {
+        var parts = [frame.file.stem]
+        if let facts = frame.file.facts {
+            if facts.aperture > 0 {
+                let f = facts.aperture
+                parts.append(f == f.rounded() ? "f/\(Int(f))" : "f/\(String(format: "%.1f", f))")
+            }
+            if facts.exposure > 0 {
+                let e = facts.exposure
+                parts.append(e < 1 ? "1/\(Int((1 / e).rounded()))" : "\(String(format: "%g", e)) s")
+            }
+            if facts.iso > 0 { parts.append("ISO \(facts.iso)") }
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func fullName(_ film: Film) -> String {
+        let iso = film.can.iso
+        return iso.isEmpty || film.name.contains(iso) ? film.displayName : "\(film.displayName) \(iso)"
+    }
+
+    private func pixels(_ frame: Frame, half: Bool) -> String {
+        let w = frame.file.facts?.width ?? 0, h = frame.file.facts?.height ?? 0
+        return half ? "\(w / 2)×\(h / 2)" : "\(w)×\(h)"
+    }
+
+    @ViewBuilder private func developingOn(_ frame: Frame) -> some View {
+        Kicker("DEVELOPING ON")
+        if let film = frame.developingCan {
+            Text(fullName(film)).font(Theme.serif(20)).foregroundColor(Theme.text)
+            dimText("Full raw · \(pixels(frame, half: false))")
+        } else {
+            Text("No film yet").font(Theme.serif(20)).foregroundColor(Theme.text)
+            dimText("Straight raw, shown as a negative carrier with no film loaded.")
+        }
+    }
+
+    @ViewBuilder private func holdLine(_ frame: Frame) -> some View {
+        if let hold = frame.printHold {
+            Text(hold).font(Theme.font(13)).foregroundColor(Theme.accent).modifier(Boxed())
+        }
+    }
+
+    @ViewBuilder private var saveTo: some View {
+        Kicker("SAVE TO")
+        Menu {
+            Button(bench.place(bench.saveFolder)) {}
+            if bench.saveFolder != Destination.defaultFolder() {
+                Button(bench.place(Destination.defaultFolder())) { bench.setSaveFolder(Destination.defaultFolder()) }
+            }
+            Divider()
+            Button("Choose folder...") {
+                if let url = Panels.pickFolder() { bench.setSaveFolder(url) }
+            }
+        } label: {
+            HStack {
+                Text(bench.place(bench.saveFolder)).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 4)
+                Text("▾")
+            }
+            .font(Theme.font(13)).foregroundColor(Theme.text)
+            .modifier(Boxed())
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        if let problem = bench.saveProblem {
+            Text(problem).font(Theme.font(12)).foregroundColor(Theme.warn).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func sizeMenu(_ frame: Frame) -> some View {
+        Menu {
+            Button("Full · \(pixels(frame, half: false)) · JPEG 92") { bench.half = false }
+            Button("Half · \(pixels(frame, half: true)) · JPEG 92") { bench.half = true }
+        } label: {
+            HStack {
+                Text("\(bench.half ? "Half" : "Full") · \(pixels(frame, half: bench.half)) · JPEG 92")
+                Spacer(minLength: 4)
+                Text("▾")
+            }
+            .font(Theme.font(13)).foregroundColor(Theme.text)
+            .modifier(Boxed())
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+    }
+
+    private func finderLink(_ url: URL) -> some View {
+        Button("Show in Finder") { bench.showInFinder(url) }
+            .buttonStyle(.plain)
+            .font(Theme.font(12, .semibold)).foregroundColor(Theme.accent)
+    }
+
+    @ViewBuilder private func printedLine(_ frame: Frame) -> some View {
+        if let last = bench.lastPrint, last.frame == frame.id {
+            Text("Printed \(last.url.lastPathComponent) to \(bench.place(last.url.deletingLastPathComponent())).")
+                .font(Theme.font(12)).foregroundColor(Theme.green)
+                .fixedSize(horizontal: false, vertical: true)
+            finderLink(last.url)
+        }
+    }
+
+    @ViewBuilder private func printButton(_ frame: Frame, _ title: String) -> some View {
+        if let error = bench.printError {
+            Text(error).font(Theme.font(12)).foregroundColor(Theme.warn)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        Button(bench.printingIDs.contains(frame.id) ? "Printing..." : title) { bench.printCurrent() }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(!bench.canPrintCurrent)
+    }
+
+    // MARK: The batch
+
+    @ViewBuilder private func batchSection(_ batch: BatchRun) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if batch.finished {
+                Text("Printed \(batch.printed) to \(batch.place).")
+                    .font(Theme.font(12, .semibold)).foregroundColor(Theme.green)
+                if batch.notRun > 0 {
+                    smallLine("Stopped. \(batch.notRun) not printed.")
+                }
+                if batch.waiting > 0 {
+                    smallLine("Skipped \(batch.waiting): no film.")
+                }
+                if batch.unreadable > 0 {
+                    smallLine("Skipped \(batch.unreadable): cannot be read.")
+                }
+                if !batch.failures.isEmpty {
+                    Text("\(batch.failures.count) failed").font(Theme.font(12, .semibold)).foregroundColor(Theme.warn)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(batch.failures) { failure in
+                                smallLine("\(failure.name): \(failure.reason)")
+                            }
+                        }
+                    }
+                    .frame(minHeight: 44, maxHeight: 70)
+                }
+                Button("Show in Finder") { bench.showFolder(batch.folder) }
+                    .buttonStyle(.plain)
+                    .font(Theme.font(12, .semibold)).foregroundColor(Theme.accent)
+            } else {
+                HStack {
+                    Text(batch.stopping ? "Finishing the print on the enlarger" : "Printing \(batch.started) of \(batch.total)")
+                        .font(Theme.font(12, .semibold)).foregroundColor(Theme.accent)
+                    Spacer()
+                    Button("Stop") { bench.stopBatch() }
+                        .buttonStyle(.plain)
+                        .font(Theme.font(12, .bold)).foregroundColor(Theme.text)
+                        .disabled(batch.stopping)
+                }
+                ProgressView(value: Double(batch.printed + batch.failures.count), total: Double(max(batch.total, 1)))
+                    .tint(Theme.accent)
+                    .controlSize(.small)
+                smallLine("to \(batch.place)")
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.faint))
+    }
+
+    private func smallLine(_ text: String) -> some View {
+        Text(text).font(Theme.font(11)).foregroundColor(Theme.dim).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The print's name. Space and the arrows belong to this field while it has focus.
+private struct NameField: View {
+    @ObservedObject var bench: Bench
+
+    var body: some View {
+        TextField("", text: Binding(get: { bench.printName }, set: { bench.nameDraft = $0 }))
+            .textFieldStyle(.plain)
+            .font(Theme.font(13)).foregroundColor(Theme.text)
+            .onSubmit { Panels.dropFocus() }
+            .modifier(Boxed())
+    }
+}

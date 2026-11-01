@@ -30,6 +30,16 @@ public enum CardFinder {
         return cards.sorted { ($0.hasML ? 0 : 1, $0.name) < ($1.hasML ? 0 : 1, $1.name) }
     }
 
+    /// Volumes macOS will not let this app read. A card here looks like no card
+    /// at all, so the app has to say which it is.
+    public static func refusedVolumes(volumes: [URL] = mountedVolumes()) -> [String] {
+        volumes.filter { root in
+            guard let dir = opendir(root.path) else { return errno == EPERM || errno == EACCES }
+            closedir(dir)
+            return false
+        }.map(\.lastPathComponent)
+    }
+
     /// DCF folders in a DCIM folder, sorted. `EOSMISC` does not fit the
     /// pattern, and is named here so nobody has to work that out.
     static func dcfFolders(in dcim: URL) -> [URL] {

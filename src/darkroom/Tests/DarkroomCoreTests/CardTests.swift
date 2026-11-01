@@ -138,4 +138,14 @@ final class CardTests: XCTestCase {
         _ = FilmShelf(cardFolder: try Bench.open(folderOrFile: r.root).filmFolder, addedFolder: nil, bundledFolder: nil, loader: Rig.loader)
         XCTAssertEqual(try snapshot(), before)
     }
+
+    func testAVolumeThatCannotBeReadIsNamed() throws {
+        let r = try Rig()
+        let locked = r.root.deletingLastPathComponent().appendingPathComponent("LOCKED")
+        let fm = FileManager.default
+        try fm.createDirectory(at: locked, withIntermediateDirectories: true)
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: locked.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+        XCTAssertEqual(CardFinder.refusedVolumes(volumes: [r.root, locked]), ["LOCKED"])
+    }
 }

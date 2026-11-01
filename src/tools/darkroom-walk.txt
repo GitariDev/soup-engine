@@ -1,0 +1,67 @@
+# Walks every screen of Enlarger Bench v4 against the fixture card from
+# tools/mkbench.sh. tools/darkroom-walk.sh runs it and checks the result.
+wait 800
+dump 1-found
+shot 1-found
+
+filter shotOn
+select IMG_3990
+settle
+dump 2-shot-on
+shot 2-shot-on
+
+filter all
+can VELVIA
+settle
+wait 300
+dump 3-your-choice
+shot 3-your-choice
+image-drag 0.5 0.3
+wait 200
+dump 3b-wiped
+shot 3b-wiped
+space down
+wait 200
+dump 3c-hold
+shot 3c-hold
+space up
+wait 200
+dump 3d-released
+
+filter noRecord
+key right
+settle
+dump 4-no-record
+shot 4-no-record
+print
+wait 300
+dump 4b-print-held
+
+filter printed
+key right
+settle
+dump 5-printed
+shot 5-printed
+
+filter notDeveloped
+wait 300
+dump 6-not-developed
+shot 6-not-developed
+
+filter shotOn
+key right
+settle
+print
+idle
+dump 7-printed-one
+filter notDeveloped
+wait 300
+dump 7b-tab-drained
+
+filter yourChoice
+wait 300
+batch
+idle
+wait 300
+dump 8-batch
+shot 8-batch

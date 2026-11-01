@@ -370,6 +370,10 @@ it to them. Open an issue here instead.
 All of it is in [`src/`](src). `AUTOEXEC.BIN` is Magic Lantern's program
 with 215 bytes changed, and the script that applies them is there too.
 
+On a Mac, [Soup Darkroom](src/darkroom/README.md) develops the raws from a 700D
+card on the desktop, with the same engine and the same films. It only ever
+reads the card.
+
 GPL v2. See [LICENSE](LICENSE). Distributed **without any warranty**,
 including the implied warranties of merchantability and fitness for a
 particular purpose (sections 11 and 12).
