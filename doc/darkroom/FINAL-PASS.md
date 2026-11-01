@@ -70,7 +70,7 @@ checks its own counts:
     make bench S="$S"
     open -n "out/Soup Darkroom.app" --args --open "$PWD/out/bench-card"
 
-You should see ALL 30, SHOT ON 16, PRINTED 2, YOUR CHOICE 0 or 1, NO RECORD 12 and
+You should see ALL 30, SHOT ON 16, PRINTED 2, YOUR CHOICE 0, NO RECORD 12 and
 NOT DEVELOPED 28. These use your real record and save folder, so use a test folder
 in Save to here.
 
