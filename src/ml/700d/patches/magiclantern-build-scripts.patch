@@ -17,7 +17,7 @@ index 6c1c3cb72..14ecff644 100644
  wrap = lambda text, width: word_wrap(text, width, extent_func)
  
 diff --git a/modules/readme2modulestrings.py b/modules/readme2modulestrings.py
-index 65dcb1bcb..b5bb0cf4d 100755
+index 65dcb1bcb..34cba2971 100755
 --- a/modules/readme2modulestrings.py
 +++ b/modules/readme2modulestrings.py
 @@ -1,7 +1,7 @@
@@ -95,3 +95,17 @@ index 65dcb1bcb..b5bb0cf4d 100755
  
  if len(last_change_info):
      last_change_date, last_changeset, author, commit_msg = last_change_info.split("\n")
+@@ -192,11 +181,8 @@ if len(last_change_info):
+ 
+ build_date = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+ 
+-# echo called from python in Windows behaves differently, better to avoid it.
+-if sys.platform == 'win32':
+-    build_user = run('whoami').replace("\n", "") + "@" + run('hostname').replace("\n", "")
+-else:
+-    build_user = run("echo `whoami`@`hostname`")
++# A module gets passed around; whoever built it should not be written into it.
++build_user = "soup-engine"
+ 
+ add_string("Build date", build_date)
+ add_string("Build user", build_user)

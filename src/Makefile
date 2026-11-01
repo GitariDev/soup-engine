@@ -147,6 +147,11 @@ card-700d: vendor-700d
 	@cp ml/700d/data/SOUPUI.BIN out/card-700d/ML/DATA/
 	@cp stocks/*.fs out/card-700d/ML/FILM/
 	@touch out/card-700d/ML/SETTINGS/soupeng.en
+	@# Magic Lantern's script writes user@host into a module, and these get
+	@# handed around. The patch stops that; a checkout from before it does not.
+	@if strings -a out/card-700d/ML/modules/soupeng.mo | grep -q "`whoami`@"; then \
+	   echo "soupeng.mo carries your user name: delete vendor/magiclantern_simplified and run this again"; \
+	   rm -rf out/card-700d; exit 1; fi
 	@echo "out/card-700d: $$(ls out/card-700d/ML/FILM | wc -l | tr -d ' ') films, soupeng.mo $$(stat -f%z ml/700d/build/soupeng.mo 2>/dev/null || stat -c%s ml/700d/build/soupeng.mo) bytes"
 	@echo "copy the contents of out/card-700d onto the card; eject before removing it"
 
