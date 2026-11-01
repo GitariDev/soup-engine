@@ -55,8 +55,8 @@ enum Theme {
         return .custom(weight == .semibold ? "BarlowSemiCondensed-SemiBold" : "BarlowSemiCondensed-Bold", size: size)
     }
 
-    /// The film's name in the tray and the empty bench's headline.
-    static func serif(_ size: CGFloat) -> Font { .system(size: size, weight: .bold, design: .serif) }
+    /// The film's name in the tray and the empty bench's headline: the camera's `.name`.
+    static func display(_ size: CGFloat) -> Font { tight(size, .bold) }
     static func mono(_ size: CGFloat) -> Font { .system(size: size, weight: .bold, design: .monospaced) }
 
     /// Silent when the fonts are not there: the system font stands in.
@@ -85,7 +85,7 @@ struct Kicker: View {
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text).font(Theme.font(10, .bold)).tracking(1.3).foregroundColor(Theme.dim)
+        Text(text).font(Theme.tight(11, .bold)).tracking(2.2).foregroundColor(Theme.dim)
     }
 }
 
@@ -97,7 +97,7 @@ struct Chip: View {
 
     var body: some View {
         Text(text)
-            .font(Theme.font(10, .semibold)).tracking(1)
+            .font(Theme.tight(12, .semibold)).tracking(0.72)
             .lineLimit(1)
             .foregroundColor(color)
             .padding(.horizontal, 10).padding(.vertical, 4)

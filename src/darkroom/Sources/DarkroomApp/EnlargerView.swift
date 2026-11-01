@@ -30,7 +30,7 @@ struct EnlargerView: View {
 
     private var emptyBench: some View {
         VStack(spacing: 10) {
-            Text(bench.emptyTitle).font(Theme.serif(22)).foregroundColor(Theme.text)
+            Text(bench.emptyTitle).font(Theme.display(26)).foregroundColor(Theme.text)
                 .multilineTextAlignment(.center)
             if let sub = bench.emptySubtitle {
                 Text(sub).font(Theme.font(13)).foregroundColor(Theme.dim)

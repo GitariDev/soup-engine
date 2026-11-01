@@ -13,7 +13,7 @@ struct ShelfView: View {
                 Button {
                     if let url = Panels.pickFilm() { bench.addFilm(from: url) }
                 } label: {
-                    Text("+ ADD").font(Theme.font(10, .bold)).tracking(1.3).foregroundColor(Theme.accent)
+                    Text("+ ADD").font(Theme.tight(11, .bold)).tracking(2.2).foregroundColor(Theme.accent)
                 }
                 .buttonStyle(.plain)
             }

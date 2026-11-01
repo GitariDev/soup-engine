@@ -125,14 +125,14 @@ struct CanView: View {
         let nameY: CGFloat = two ? 74 : 80
         let small = style == .band ? Color(hex: "#3b2a12") : ink
 
-        func put(_ s: String, _ y: CGFloat, _ size: CGFloat, _ color: Color) {
-            let text = Text(s).font(Theme.font(size, .bold)).foregroundColor(color)
+        func put(_ s: String, _ y: CGFloat, _ size: CGFloat, _ color: Color, tracking: CGFloat = 0) {
+            let text = Text(s).font(Theme.tight(size, .bold)).tracking(tracking).foregroundColor(color)
             ctx.draw(text, at: CGPoint(x: 60, y: y), anchor: UnitPoint(x: 0.5, y: 0.8))
         }
-        put("\(can.brand) FILM", style == .band ? 47 : 48, 7, small.opacity(0.9))
-        put(words.first ?? "", nameY, nameSize, ink)
-        if two { put(words.dropFirst().joined(separator: " "), nameY + nameSize + 0.5, nameSize, ink) }
+        put("\(can.brand) FILM", style == .band ? 47 : 48, 7, small.opacity(0.9), tracking: 1.1)
+        put(words.first ?? "", nameY, nameSize, ink, tracking: 0.6)
+        if two { put(words.dropFirst().joined(separator: " "), nameY + nameSize + 0.5, nameSize, ink, tracking: 0.6) }
         put(can.iso, two ? 130 : 129, two ? 35 : 41, ink)
-        put("135-36", style == .band ? 157 : 143, 7.5, small.opacity(0.9))
+        put("135-36", style == .band ? 157 : 143, 7.5, small.opacity(0.9), tracking: 0.9)
     }
 }

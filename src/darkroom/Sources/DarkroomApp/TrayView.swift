@@ -85,7 +85,7 @@ struct TrayView: View {
             Chip(text: "NO FILM RECORDED", color: Theme.dim, dashed: true)
             dimText("\(frame.file.stem). \(frame.noRecordReason ?? "") No film is assumed.")
             Kicker("DEVELOPING ON")
-            Text("No film yet").font(Theme.serif(20)).foregroundColor(Theme.text)
+            Text("No film yet").font(Theme.display(24)).foregroundColor(Theme.text)
             dimText("Straight raw, shown as a negative carrier with no film loaded.")
             Text("Pick a can from the shelf to print")
                 .font(Theme.font(13)).foregroundColor(Theme.accent)
@@ -157,10 +157,10 @@ struct TrayView: View {
     @ViewBuilder private func developingOn(_ frame: Frame) -> some View {
         Kicker("DEVELOPING ON")
         if let film = frame.developingCan {
-            Text(fullName(film)).font(Theme.serif(20)).foregroundColor(Theme.text)
+            Text(fullName(film)).font(Theme.display(24)).foregroundColor(Theme.text)
             dimText("Full raw · \(pixels(frame, half: false))")
         } else {
-            Text("No film yet").font(Theme.serif(20)).foregroundColor(Theme.text)
+            Text("No film yet").font(Theme.display(24)).foregroundColor(Theme.text)
             dimText("Straight raw, shown as a negative carrier with no film loaded.")
         }
     }

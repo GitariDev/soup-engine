@@ -24,7 +24,7 @@ struct FilterBar: View {
             bench.setFilter(filter)
         } label: {
             Text("\(filter.title) \(bench.counts[filter])")
-                .font(Theme.font(10, .semibold)).tracking(1).lineLimit(1).fixedSize()
+                .font(Theme.tight(12, .bold)).tracking(2.4).lineLimit(1).fixedSize()
                 .foregroundColor(on ? filter.color : Theme.dim)
                 .padding(.horizontal, 8).padding(.vertical, 4)
                 .background(on ? Theme.pill.fill(Color.white.opacity(0.13)) : nil)
