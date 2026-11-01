@@ -25,6 +25,12 @@ if c["shotOn"] + c["printed"] + c["yourChoice"] + c["noRecord"] != c["all"]:
 need("2-shot-on", "state", "shotOn")
 need("2-shot-on", "canPrint", True)
 need("3-your-choice", "state", "yourChoice")
+def rect(label):
+    text = log.get(label, {}).get("imageRect", "")
+    return [round(float(v), 1) for v in text.strip("()").split(",")] if text else None
+
+if rect("2-shot-on") is None or rect("2-shot-on") != rect("3-your-choice"):     # a compare does not move the picture
+    bad.append(f"the picture moved: {rect('2-shot-on')} to {rect('3-your-choice')}")
 need("3b-wiped", "wipe", lambda w: w is not None and abs(w - 0.3) < 0.02)
 need("3c-hold", "holdShotOn", True)
 need("3d-released", "holdShotOn", False)

@@ -14,7 +14,8 @@ struct EnlargerView: View {
             } else {
                 problem(bench.pictureProblem ?? "Developing")
             }
-            caption
+            // Two lines' height, so nothing said here can move the picture.
+            ZStack { caption }.frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
