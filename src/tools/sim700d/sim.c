@@ -327,6 +327,7 @@ static void tick(int n) { while (n-- > 0) sim_cbr_clock(0); }
  * lets it through, the raw event for the raw callback. 0 means taken.
  */
 extern unsigned (*sim_cbr_raw)(se_ctx_t);
+extern int se_pv_info(int no, char *film, size_t cap, int *size);
 static int ev(int code)
 {
     static const int xlat[][2] = {
@@ -713,7 +714,9 @@ int main(int argc, char **argv)
           for (i = 0; i < se_ui_dark_count(); i++) if (se_ui_dark_raw(i) == 300) found = i;
           check(found >= 0, "IMG_0300 is on the Darkroom's list");
           se_dark_sel = found; KEY(BGMT_PRESS_SET); KEY(BGMT_UNPRESS_SET); }
-        check(se_q_count() >= 1 || se_busy, "SET queues it");
+        /* the worker empties the queue a moment before it says it is busy */
+        { int w = 0; while (!se_q_count() && !se_busy && !exists("DCIM/100CANON/FLM_0300.JPG") && w++ < 200) usleep(1000);
+          check(w < 200, "SET queues it"); }
         dump("darkroom_busy");
         wait_idle(60); usleep(200000);
         check(exists("DCIM/100CANON/FLM_0300.JPG"), "and it develops");
@@ -735,6 +738,12 @@ int main(int argc, char **argv)
         { int w = 0; while (access(a, 0) != 0 && w < 5000) { usleep(1000); w++; }
           check(access(a, 0) == 0, "a print with no preview gets one from the worker (%d ms)", w); }
         usleep(300000);
+        /* a card from the build with the ordered dither: it must not show */
+        { FILE *h = fopen(a, "r+b"); char fl[32]; int z;
+          fwrite("SPV1", 1, 4, h); fclose(h);
+          check(se_pv_info(se_prints[se_print_sel], fl, sizeof fl, &z) != 0, "a preview in the old format is not used");
+          h = fopen(a, "r+b"); fwrite("SPV2", 1, 4, h); fclose(h);
+          check(se_pv_info(se_prints[se_print_sel], fl, sizeof fl, &z) == 0, "and this one is"); }
         dump("viewer");
         no = se_prints[se_print_sel]; np = se_nprints;
         KEY(BGMT_PRESS_LEFT); KEY(BGMT_UNPRESS_LEFT);
