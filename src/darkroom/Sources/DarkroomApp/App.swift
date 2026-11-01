@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
         // Run from `swift run` there is no bundle to make this a regular app.
         NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        if Arguments.value(after: "--drive") == nil { NSApp.activate(ignoringOtherApps: true) }
         MainActor.assumeIsolated {
             guard let bench = Self.bench else { return }
             KeyMonitor.shared.install(bench: bench)
