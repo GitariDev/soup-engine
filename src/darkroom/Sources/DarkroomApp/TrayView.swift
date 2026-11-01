@@ -7,14 +7,27 @@ struct TrayView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             if let frame = bench.current {
-                content(frame)
+                head(frame)
             } else {
                 Kicker("PRINT TRAY")
-                if !bench.visible.isEmpty { dimText("Choose a frame on the strip.") }
-                Spacer(minLength: 0)
+            }
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 11) {
+                    if let batch = bench.batch { batchSection(batch) }
+                    if let frame = bench.current {
+                        middle(frame)
+                    } else if !bench.visible.isEmpty {
+                        dimText("Choose a frame on the strip.")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: .infinity)
+            if let frame = bench.current {
+                foot(frame)
+            } else {
                 printedLine(nil)
             }
-            if let batch = bench.batch { batchSection(batch) }
         }
         .padding(16)
         .frame(width: 270, alignment: .leading)
@@ -22,95 +35,89 @@ struct TrayView: View {
         .overlay(alignment: .leading) { Rectangle().fill(Theme.faint).frame(width: 1) }
     }
 
-    @ViewBuilder private func content(_ frame: Frame) -> some View {
+    // MARK: The states
+
+    @ViewBuilder private func head(_ frame: Frame) -> some View {
+        Kicker(!bench.isUnreadable(frame) && frame.state == .yourChoice ? "PRINT TRAY" : "THIS FRAME")
         if bench.isUnreadable(frame) {
-            unreadable(frame)
+            Chip(text: "CANNOT BE READ", color: Theme.warn)
         } else {
             switch frame.state {
-            case .shotOn: shotOn(frame)
-            case .yourChoice: yourChoice(frame)
+            case .shotOn: Chip(text: "SHOT ON \(upper(frame.shotOnFilm?.film))", color: Theme.accent)
+            case .yourChoice: Chip(text: "YOUR CHOICE · \(upper(frame.choice))", color: Theme.blue)
+            case .noRecord: Chip(text: "NO FILM RECORDED", color: Theme.dim, dashed: true)
+            case .printed:
+                Chip(text: frame.printedFilms.last.map { "PRINTED · \(upper($0))" } ?? "PRINTED", color: Theme.green)
+            }
+        }
+    }
+
+    @ViewBuilder private func middle(_ frame: Frame) -> some View {
+        if bench.isUnreadable(frame) {
+            dimText("\(frame.file.stem). This CR2 cannot be read. It stays as it is.")
+        } else {
+            switch frame.state {
+            case .shotOn:
+                dimText(Self.facts(frame))
+                developingOn(frame)
+                printControls(frame)
+            case .yourChoice:
+                dimText(choiceLine(frame))
+                printControls(frame)
             case .noRecord: noRecord(frame)
             case .printed: printed(frame)
             }
         }
     }
 
-    // MARK: The states
-
-    private func unreadable(_ frame: Frame) -> some View {
-        Group {
-            Kicker("THIS FRAME")
-            Chip(text: "CANNOT BE READ", color: Theme.warn)
-            dimText("\(frame.file.stem). This CR2 cannot be read. It stays as it is.")
-            Spacer(minLength: 0)
-            printButton(frame, "Print to folder")
-        }
+    @ViewBuilder private func noRecord(_ frame: Frame) -> some View {
+        dimText("\(frame.file.stem). \(frame.noRecordReason ?? "") No film is assumed.")
+        Kicker("DEVELOPING ON")
+        Text("No film yet").font(Theme.display(24)).foregroundColor(Theme.text)
+        dimText("Straight raw, shown as a negative carrier with no film loaded.")
+        Text("Pick a can from the shelf to print")
+            .font(Theme.font(13)).foregroundColor(Theme.accent)
+            .modifier(Boxed())
+        saveTo
     }
 
-    private func shotOn(_ frame: Frame) -> some View {
-        Group {
-            Kicker("THIS FRAME")
-            Chip(text: "SHOT ON \(upper(frame.shotOnFilm?.film))", color: Theme.accent)
-            dimText(Self.facts(frame))
-            developingOn(frame)
-            saveTo
-            holdLine(frame)
-            Spacer(minLength: 0)
-            printedLine(frame.id)
-            printButton(frame, "Print to folder")
+    @ViewBuilder private func printed(_ frame: Frame) -> some View {
+        if frame.cardPrint != nil, frame.deskPrints.isEmpty {
+            dimText("\(frame.file.stem). The print on the card stays as it is.")
+        } else if let print = frame.deskPrints.last {
+            dimText("\(frame.file.stem). The print is in \(bench.place(print.url.deletingLastPathComponent())).")
+            finderLink(print.url)
         }
+        if let shot = frame.shotOnFilm { dimText("Shot on \(Film.display(shot.film))") }
+        developingOn(frame)
+        printControls(frame)
     }
 
-    private func yourChoice(_ frame: Frame) -> some View {
-        Group {
-            Kicker("PRINT TRAY")
-            Chip(text: "YOUR CHOICE · \(upper(frame.choice))", color: Theme.blue)
-            dimText(choiceLine(frame))
-            saveTo
+    /// Where the print goes, what it is called and how big, then why it waits.
+    @ViewBuilder private func printControls(_ frame: Frame) -> some View {
+        saveTo
+        if frame.canPrint {
             Kicker("NAME")
             NameField(bench: bench)
             Kicker("SIZE")
             sizeMenu(frame)
-            holdLine(frame)
-            Spacer(minLength: 0)
-            printedLine(frame.id)
-            printButton(frame, "Print to folder")
-            dimText("The CR2 is not changed.").font(Theme.font(11))
         }
+        holdLine(frame)
     }
 
-    private func noRecord(_ frame: Frame) -> some View {
-        Group {
-            Kicker("THIS FRAME")
-            Chip(text: "NO FILM RECORDED", color: Theme.dim, dashed: true)
-            dimText("\(frame.file.stem). \(frame.noRecordReason ?? "") No film is assumed.")
-            Kicker("DEVELOPING ON")
-            Text("No film yet").font(Theme.display(24)).foregroundColor(Theme.text)
-            dimText("Straight raw, shown as a negative carrier with no film loaded.")
-            Text("Pick a can from the shelf to print")
-                .font(Theme.font(13)).foregroundColor(Theme.accent)
-                .modifier(Boxed())
-            Spacer(minLength: 0)
-            printButton(frame, "Print ▸")
-        }
+    /// Pinned: what grows here grows upward, so Print never moves.
+    @ViewBuilder private func foot(_ frame: Frame) -> some View {
+        printedLine(frame.id)
+        printButton(frame, printTitle(frame))
+        dimText("The CR2 is not changed.").font(Theme.font(11))
     }
 
-    private func printed(_ frame: Frame) -> some View {
-        Group {
-            Kicker("THIS FRAME")
-            Chip(text: frame.printedFilms.last.map { "PRINTED · \(upper($0))" } ?? "PRINTED", color: Theme.green)
-            if frame.cardPrint != nil, frame.deskPrints.isEmpty {
-                dimText("\(frame.file.stem). The print on the card stays as it is.")
-            } else if let print = frame.deskPrints.last {
-                dimText("\(frame.file.stem). The print is in \(bench.place(print.url.deletingLastPathComponent())).")
-                finderLink(print.url)
-            }
-            if let shot = frame.shotOnFilm { dimText("Shot on \(Film.display(shot.film))") }
-            developingOn(frame)
-            saveTo
-            holdLine(frame)
-            Spacer(minLength: 0)
-            printButton(frame, "Redevelop to folder")
+    private func printTitle(_ frame: Frame) -> String {
+        if bench.isUnreadable(frame) { return "Print to folder" }
+        switch frame.state {
+        case .noRecord: return "Print ▸"
+        case .printed: return "Redevelop to folder"
+        default: return "Print to folder"
         }
     }
 
@@ -243,6 +250,11 @@ struct TrayView: View {
         Button(bench.printingIDs.contains(frame.id) ? "Printing..." : title) { bench.printCurrent() }
             .buttonStyle(PrimaryButtonStyle())
             .disabled(!bench.canPrintCurrent)
+            .background(GeometryReader { geo in
+                Color.clear
+                    .onAppear { DriverAnchors.printRect = geo.frame(in: .global) }
+                    .onChange(of: geo.frame(in: .global)) { _, rect in DriverAnchors.printRect = rect }
+            })
     }
 
     // MARK: The batch

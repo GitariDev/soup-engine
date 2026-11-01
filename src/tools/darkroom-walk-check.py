@@ -61,6 +61,15 @@ need("10b-can-arrived", "filmLate", False)
 
 need("1-found", "firstFilms", "PORTRA GOLD")
 
+# Print sits in one place on every tray, and every print is named and sized.
+def button(label):
+    text = log.get(label, {}).get("printRect", "")
+    return [round(float(v), 1) for v in text.strip("()").split(",")] if text else None
+
+for label in ("3-your-choice", "4-no-record", "5-printed"):
+    if button(label) is None or button(label) != button("2-shot-on"):
+        bad.append(f"Print moved: {button('2-shot-on')} to {button(label)} at {label}")
+
 prints = open(sys.argv[2]).read().split()
 if len(prints) < 2:
     bad.append(f"expected prints, found {prints}")

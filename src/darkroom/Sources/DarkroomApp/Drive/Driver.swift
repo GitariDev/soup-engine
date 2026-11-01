@@ -179,6 +179,7 @@ enum Driver {
             "films": bench.films.count, "printName": bench.printName,
             "looking": bench.looking, "active": NSApp.isActive, "key": window?.isKeyWindow ?? false,
             "imageRect": DriverAnchors.imageRect.map { "\($0)" } ?? "",
+            "printRect": DriverAnchors.printRect.map { "\($0)" } ?? "",
             "canPrint": bench.canPrintCurrent, "saveFolder": bench.saveFolder.path,
         ]
         if let f = bench.current {
@@ -213,4 +214,5 @@ enum Driver {
 @MainActor
 enum DriverAnchors {
     static var imageRect: CGRect?
+    static var printRect: CGRect?
 }
