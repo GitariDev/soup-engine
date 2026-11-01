@@ -86,7 +86,7 @@ can is chosen. The state stays Shot on; the strip says NO CAN.
 | Batch progress | "Printing 3 of 16" in the tray, a Stop that finishes the current frame, and a result naming the folder and what was printed, skipped and failed |
 | Where a batch prints | the destination is printed on the batch button's line, always |
 | Does a printed frame show its shot-on film? | yes, "Printed on Eterna" and "Shot on Portra", and Space compares against the shot-on film |
-| Fogged Eterna on IMG_3996 | measured in Phase 2, recorded in `doc/darkroom/POLISH.md` |
+| Fogged Eterna on IMG_3996 | the frame and the stock together, not the app; measured in `doc/darkroom/POLISH.md` |
 | Toolkit | SwiftUI, in a Swift package, on macOS 14 or later |
 | A batch includes No record frames | they are skipped and counted, never guessed: "Print 16 of 28, 12 wait for a film" |
 
