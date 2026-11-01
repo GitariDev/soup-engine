@@ -52,6 +52,7 @@ shot 6-not-developed
 filter shotOn
 key right
 settle
+filter all
 print
 idle
 dump 7-printed-one
@@ -66,3 +67,17 @@ idle
 wait 300
 dump 8-batch
 shot 8-batch
+
+filter shotOn
+wait 100
+dump 9-before-print
+print
+idle
+wait 200
+dump 9a-moved-on
+filter yourChoice
+wait 200
+dump 9b-empty-tab
+filter shotOn
+wait 200
+dump 9c-back

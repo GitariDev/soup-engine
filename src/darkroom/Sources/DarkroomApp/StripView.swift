@@ -8,7 +8,7 @@ struct StripView: View {
     @ObservedObject var bench: Bench
 
     var body: some View {
-        Rows(frames: bench.visible, version: bench.stripVersion, selected: bench.selectedID,
+        Rows(frames: bench.visible, version: bench.stripVersion, selected: bench.selectedID, filter: bench.filter,
              empty: bench.stripEmptyLine, broken: bench.broken, thumbs: bench.thumbs,
              select: { id in
                  Panels.dropFocus()
@@ -23,10 +23,26 @@ struct StripView: View {
         let frames: [Frame]
         let version: Int
         let selected: String?
+        let filter: Filter
         let empty: String
         let broken: Set<String>
         let thumbs: Thumbnails
         let select: (String) -> Void
+
+        /// A click leaves the strip where it is, as far as it can.
+        @State private var tapped: String?
+
+        private func scrollToSelected(_ proxy: ScrollViewProxy) {
+            if let selected { proxy.scrollTo(selected, anchor: .center) }
+        }
+
+        /// Walking keeps a frame in view ahead of the selection, either way.
+        private func anchor(from old: String?, to id: String) -> UnitPoint? {
+            if id == tapped { return nil }
+            guard let old, let a = frames.firstIndex(where: { $0.id == old }),
+                  let b = frames.firstIndex(where: { $0.id == id }) else { return .center }
+            return UnitPoint(x: b > a ? 0.75 : 0.25, y: 0.5)
+        }
 
         static func == (a: Rows, b: Rows) -> Bool {
             a.version == b.version && a.selected == b.selected && a.empty == b.empty && a.broken == b.broken
@@ -44,14 +60,22 @@ struct StripView: View {
                                 Cell(frame: frame, selected: frame.id == selected, broken: broken.contains(frame.id),
                                      thumbs: thumbs)
                                     .id(frame.id)
-                                    .onTapGesture { select(frame.id) }
+                                    .onTapGesture {
+                                        tapped = frame.id
+                                        select(frame.id)
+                                    }
                             }
                         }
                         .padding(.horizontal, 8)
                     }
-                    .onChange(of: selected) { _, id in
-                        if let id { proxy.scrollTo(id) }
+                    .onChange(of: selected) { old, id in
+                        guard let id else { return }
+                        proxy.scrollTo(id, anchor: anchor(from: old, to: id))
                     }
+                    .onChange(of: filter) { _, _ in
+                        DispatchQueue.main.async { scrollToSelected(proxy) }
+                    }
+                    .onAppear { DispatchQueue.main.async { scrollToSelected(proxy) } }
                 }
             }
         }

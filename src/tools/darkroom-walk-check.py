@@ -40,6 +40,14 @@ if counts("7b-tab-drained")["notDeveloped"] != counts("6-not-developed")["notDev
     bad.append("the Not developed tab did not drain by one")
 need("8-batch", "batch", lambda b: b is not None and "failed 0" in b)
 
+# The selection follows the work, and an empty tab does not lose it.
+need("9a-moved-on", "state", "shotOn")
+need("9a-moved-on", "frame", lambda f: f and f != log.get("9-before-print", {}).get("frame"))
+need("9a-moved-on", "visible", lambda v: log.get("9-before-print", {}).get("frame") not in (v or "").split())
+need("9b-empty-tab", "frame", None)
+need("9b-empty-tab", "visible", "")
+need("9c-back", "frame", log.get("9a-moved-on", {}).get("frame"))
+
 prints = open(sys.argv[2]).read().split()
 if len(prints) < 2:
     bad.append(f"expected prints, found {prints}")

@@ -71,7 +71,9 @@ struct BatchRun {
     let total: Int
     let folder: URL
     let place: String
-    let holds: [(reason: String, count: Int)]
+    /// The frames that waited, and why the ones still waiting do.
+    let waiting: Set<String>
+    var holds: [(reason: String, count: Int)]
     let unreadable: Int
     var started = 0
     var printed = 0
@@ -130,6 +132,8 @@ final class Bench: ObservableObject {
 
     // The frame on the enlarger.
     @Published private(set) var selectedID: String?
+    /// The selection while an empty tab has nothing to show it on.
+    private var heldID: String?
     @Published private(set) var current: Frame?
     @Published private(set) var main: Picture?
     @Published private(set) var compare: Picture?
@@ -306,6 +310,8 @@ final class Bench: ObservableObject {
         broken = []
         filter = .all
         selectedID = nil
+        heldID = nil
+        lastPrint = nil
         current = nil
         roll = nil
         rollNumber = nil
@@ -474,30 +480,74 @@ final class Bench: ObservableObject {
             selectedID = nil
             nameDraft = nil
         }
+        if let id = heldID, !frames.contains(where: { $0.id == id }) { heldID = nil }
         // The selected frame stays on the strip when its state changes under
         // the filter, so choosing a can does not pull it away from the user.
         visible = frames.filter { filter.includes($0) || $0.id == selectedID }
         stripVersion += 1
         current = selectedID.flatMap { id in visible.first { $0.id == id } }
         plan = filter == .all ? nil : PrintPlan(frames: filter.apply(to: frames), destination: saveFolder)
+        settleBatch()
+    }
+
+    /// A finished batch's skips hold only while those frames still wait.
+    private func settleBatch() {
+        guard let run = batch, run.finished, !run.waiting.isEmpty else { return }
+        let still = frames.filter { run.waiting.contains($0.id) && !$0.canPrint && !isUnreadable($0) }
+        if still.isEmpty {
+            batch = nil
+        } else {
+            batch?.holds = PrintPlan.holds(of: still)
+        }
     }
 
     func setFilter(_ filter: Filter) {
         self.filter = filter
+        lastPrint = nil
         if batch?.finished == true { batch = nil }
-        if let id = selectedID, let frame = frames.first(where: { $0.id == id }), !filter.includes(frame) {
-            let first = filter.apply(to: frames).first?.id
-            selectedID = nil
-            derive()
-            select(first)
+        let wanted = selectedID ?? heldID
+        if let id = wanted, let frame = frames.first(where: { $0.id == id }), filter.includes(frame) {
+            if selectedID == nil {
+                select(id)
+            } else {
+                derive()
+            }
             return
         }
-        derive()
+        if selectedID != nil {
+            selectedID = nil
+            derive()
+        }
+        if let first = filter.apply(to: frames).first?.id {
+            select(first)
+        } else {
+            heldID = wanted
+            derive()
+            develop()
+        }
+    }
+
+    /// A frame that has left the filter gives way to the next one still in it,
+    /// and when none is left the tab is empty and the selection is held.
+    private func moveOn(from id: String) {
+        guard selectedID == id, let at = visible.firstIndex(where: { $0.id == id }),
+              !filter.includes(visible[at]) else { return }
+        let next = visible[(at + 1)...].first(where: filter.includes) ?? visible[..<at].last(where: filter.includes)
+        if let next {
+            select(next.id)
+        } else {
+            selectedID = nil
+            heldID = id
+            nameDraft = nil
+            derive()
+            develop()
+        }
     }
 
     func select(_ id: String?) {
         guard id != selectedID else { return }
         notice = nil
+        heldID = nil
         selectedID = id
         nameDraft = nil
         half = false
@@ -793,6 +843,9 @@ final class Bench: ObservableObject {
                 self.nameDraft = nil
                 self.lastPrint = (frame.id, url)
                 self.rebuild(identity: frame.identity)
+                self.moveOn(from: frame.id)
+                // The tray that says where it went moves with the selection.
+                if let moved = self.selectedID, moved != frame.id { self.lastPrint = (moved, url) }
             } catch {
                 self.printError = Self.reason(error)
             }
@@ -819,13 +872,14 @@ final class Bench: ObservableObject {
         }
         let waiting = plan.waiting.filter { !isUnreadable($0) }
         batch = BatchRun(total: plan.items.count, folder: folder, place: place(folder),
-                         holds: PrintPlan.holds(of: waiting),
+                         waiting: Set(waiting.map(\.id)), holds: PrintPlan.holds(of: waiting),
                          unreadable: plan.unreadable.count + plan.waiting.count - waiting.count)
         let items = plan.items
         batchTask = Task { [weak self] in
             await self?.runBatch(items, to: folder)
             self?.batch?.finished = true
             self?.batchTask = nil
+            self?.batchEnded()
         }
     }
 
@@ -873,6 +927,16 @@ final class Bench: ObservableObject {
             rebuild(identity: item.frame.identity)
         case .failed(let item, let why):
             batch?.failures.append(.init(name: item.frame.name, reason: why))
+        }
+    }
+
+    /// The tray goes to what still needs the user, or the work moves on.
+    private func batchEnded() {
+        let waiting = batch?.waiting ?? []
+        if let first = visible.first(where: { waiting.contains($0.id) && filter.includes($0) }) {
+            select(first.id)
+        } else if let id = selectedID {
+            moveOn(from: id)
         }
     }
 

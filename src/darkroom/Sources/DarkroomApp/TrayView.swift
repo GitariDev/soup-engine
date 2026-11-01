@@ -10,8 +10,9 @@ struct TrayView: View {
                 content(frame)
             } else {
                 Kicker("PRINT TRAY")
-                dimText("Choose a frame on the strip.")
+                if !bench.visible.isEmpty { dimText("Choose a frame on the strip.") }
                 Spacer(minLength: 0)
+                printedLine(nil)
             }
             if let batch = bench.batch { batchSection(batch) }
         }
@@ -55,7 +56,7 @@ struct TrayView: View {
             saveTo
             holdLine(frame)
             Spacer(minLength: 0)
-            printedLine(frame)
+            printedLine(frame.id)
             printButton(frame, "Print to folder")
         }
     }
@@ -72,7 +73,7 @@ struct TrayView: View {
             sizeMenu(frame)
             holdLine(frame)
             Spacer(minLength: 0)
-            printedLine(frame)
+            printedLine(frame.id)
             printButton(frame, "Print to folder")
             dimText("The CR2 is not changed.").font(Theme.font(11))
         }
@@ -224,8 +225,9 @@ struct TrayView: View {
             .font(Theme.font(12, .semibold)).foregroundColor(Theme.accent)
     }
 
-    @ViewBuilder private func printedLine(_ frame: Frame) -> some View {
-        if let last = bench.lastPrint, last.frame == frame.id {
+    /// Nil is the tray with no frame on it: a tab the last print just emptied.
+    @ViewBuilder private func printedLine(_ frame: String?) -> some View {
+        if let last = bench.lastPrint, frame == nil || last.frame == frame {
             Text("Printed \(last.url.lastPathComponent) to \(bench.place(last.url.deletingLastPathComponent())).")
                 .font(Theme.font(12)).foregroundColor(Theme.green)
                 .fixedSize(horizontal: false, vertical: true)
