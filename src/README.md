@@ -64,17 +64,23 @@ their module build. It needs two things outside this repository:
 | Arm's GNU toolchain | `arm-none-eabi-gcc` with newlib's headers, which Homebrew's package lacks. The Makefile looks for it at `~/.local/opt/arm-gnu-toolchain-15.3.rel2`; set `ARM_TOOLCHAIN` otherwise. It must live at a path without spaces, because their Makefile does not quote the compiler. |
 
 ```sh
-make card-700d   # soupeng.mo, the films and the enable file, in out/card-700d/
+make card-700d   # soupeng.mo, the films, the art and the enable file, in out/card-700d/
 ```
 
-The module is four files -- `soupeng.c` (films, menu, config, lifetime),
+The module is six files -- `soupeng.c` (films, menu, config, lifetime),
 `develop.c` (one frame), `watch.c` (the queue and its tasks), `screen.c`
-(the label and the picker) -- sharing `soupeng.h`, and they reach Magic
-Lantern only through `ml.h`. `tools/sim700d/` supplies a mock of that
-one header and runs the real four on the desktop: it develops a frame
-and compares it with `previewcheck` byte for byte, then drives the
-watcher through a burst, a half-written file and a power-off, and the
-picker through its keys.
+(the label and the keys), `ui.c` (the screens), `prints.c` (the previews) --
+sharing `soupeng.h`,
+and they reach Magic Lantern only through `ml.h`. `tools/sim700d/` supplies
+a mock of that one header and runs the real six on the desktop: it
+develops a frame and compares it with `previewcheck` byte for byte, then
+drives the watcher through a burst, a half-written file and a power-off,
+and the screen through its keys.
+
+The film screen's art is `ml/700d/data/SOUPUI.BIN`, which `make card-700d`
+copies to `ML/DATA` on the card. `tools/mkui.js` renders it from the design
+in `doc/menu-sample/`; it needs a Chromium and runs only when the design
+changes, so a build never does.
 
 Copy the contents of `out/card-700d` onto a card that already has
 Magic Lantern's 700D build on it, eject it, and switch the camera on

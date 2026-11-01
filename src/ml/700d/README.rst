@@ -6,31 +6,63 @@ Film looks, in the camera. Put the films (the ``.fs`` files) in
 shot after that gets a second JPEG beside the raw, ``FLM_1234.JPG``,
 with the look on it. The raw is never modified.
 
-Quick picker
-------------
+Film screen
+-----------
 
-In shooting mode press INFO: the film list is the first stop of
-Canon's INFO cycle. The wheel or the arrows move, SET chooses a film
-or flips the auto switch, Trash cancels, and INFO again closes it and
-goes on to Canon's next screen. Outside the open list SET is left to
-Canon, and the list stays out of Canon's menu, the Q screen and the
-other settings screens. While it is
-open every button is the list's: nothing underneath it reacts, except
-the shutter, which closes it and still fires. Under the films: DEVELOP
-LAST SHOT, and AUTO DEVELOP on or off. With auto off, shoot and look
-first, then develop the shot you want. The current film is shown at
-the bottom right of the shooting screen, with a red ML BRACKET ON above it
-if Advanced Bracket is on in this Shoot menu: that makes every shutter
-press a sequence. While a frame develops the same line shows its
-progress and how many frames wait behind it; do not switch off until
-it is clear.
+In shooting mode press INFO: the film screen is the first stop of
+Canon's INFO cycle.
+
+Left and right, or the dial, move along the films. Up and down jump
+between shelves. SET loads the film.
+
+PLAY turns Auto develop on or off: bottom left of the screen.
+Trash steps Quality: bottom right. Q develops the last shot.
+
+The number at the top is how many frames are waiting to develop.
+
+Leaving it
+----------
+
+INFO goes on to Canon's next screen. The shutter closes it and still
+fires. It closes by itself after 20 seconds, which System can change.
+
+With auto off, shoot and look first, then develop the shot you want.
+
+The art is ML/DATA/SOUPUI.BIN. Without that file, or without the
+memory for it, INFO opens a plain list of the films instead.
+
+Home
+----
+
+MENU on the film screen opens Home. Up and down move, SET opens, MENU
+goes back a step, and Trash closes.
+
+Darkroom lists frames developing and raws with no print. SET develops
+one, Q all of them.
+
+Prints shows what is on the card. SET opens one, left and right flip,
+Q redevelops it in the film in the camera, and Trash deletes the print
+after asking. The raw stays.
+
+Roll counts your shots. It has no size, and a new film starts a new one.
+
+Shooting screen
+---------------
+
+The current film is shown at the bottom right, with a red ML BRACKET
+ON above it if Advanced Bracket is on in this Shoot menu: that makes
+every shutter press a sequence. While a frame develops the same line
+shows its progress and how many frames wait behind it; do not switch
+off until it is clear.
 
 Sizes
 -----
 
 Quarter (1296x864) takes about 10 seconds. Half (2592x1728) about 40.
 Full (18 MP) about three minutes. Keep shooting while it works: frames
-queue, and the camera will not power off with frames waiting.
+queue, and the camera will not power off with frames waiting. A frame
+keeps the film and size it was shot with, even if you change them
+while it waits.
 
 Cards
 -----

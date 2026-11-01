@@ -62,23 +62,39 @@ All thirteen, one frame, straight off the card.
 There is a second camera build, for the **EOS 700D** (firmware 1.1.5),
 as a Magic Lantern module rather than a patched binary. Install Magic
 Lantern's 700D build first, then copy `ML/modules/soupeng.mo`, the
-`ML/FILM` folder and `ML/SETTINGS/soupeng.en` from a `make card-700d`
+`ML/FILM` folder, `ML/DATA/SOUPUI.BIN` and `ML/SETTINGS/soupeng.en` from a `make card-700d`
 onto the card (see [`src/README.md`](src/README.md)). Soup Engine then
 lives under **Shoot** in Magic Lantern's menu, and the current film is
-shown at the bottom right of the shooting screen. To change it quickly, press
-**INFO** in shooting mode: the film list is the first stop of Canon's
-INFO cycle. The **wheel or the arrows** move, **SET** chooses a film or
-flips the auto switch, Trash cancels, and INFO again moves on to Canon's
-next screen. Outside the open list SET is left to Canon, and the list
-keeps out of Canon's menu, the Q screen and the other settings screens. While the list is open every button is the
-list's and nothing underneath it reacts, except the shutter, which
-closes it and still fires.
-The same list offers **Develop last shot** and an **Auto develop**
-switch, so you can shoot with auto off, judge on the back screen, and
-develop only the frames that deserve it. With auto on, every shot gets
-`FLM_1234.JPG` beside its raw. Quarter size takes about 11
-seconds a frame, half about 40, full about three minutes; frames queue
-while you keep shooting, and the camera will not switch itself off with
+shown at the bottom right of the shooting screen. To change it, press
+**INFO** in shooting mode: the film screen is the first stop of Canon's
+INFO cycle, a row of film cans with the frames waiting to develop
+counted at the top.
+
+| button | what it does |
+|:--|:--|
+| ◀️ ▶️ or the dial | choose a film |
+| 🔼 🔽 | jump between shelves |
+| ✅ **`SET`** | load the film |
+| ▶️ **`PLAY`** | Auto develop on or off, bottom left |
+| 🗑️ **Trash** | Quality, bottom right |
+| **`Q`** | develop the last shot |
+| **`MENU`** | Home |
+
+From **Home**: the **Darkroom** lists frames developing and raws with no
+print, **Prints** shows what is on the card, **Roll** counts your shots with
+no size limit, and **Lens** and **System** do what they say. MENU goes back a
+step, and Trash closes.
+
+**INFO** moves on to Canon's next screen, and the shutter closes it and
+still fires. Outside this screen SET is
+left to Canon, and it keeps out of Canon's menu, the Q screen and the
+other settings screens. Shoot with auto off, judge on the back screen,
+and develop only the frames that deserve it.
+
+With auto on, every shot gets `FLM_1234.JPG` beside its raw. Quarter
+size takes about 11 seconds a frame, half about 40, full about three
+minutes; frames queue while you keep shooting, each keeps the film and
+size it was shot with, and the camera will not switch itself off with
 frames pending.
 
 Always eject the card from the computer before pulling it, or the

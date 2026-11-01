@@ -11,9 +11,10 @@
  *
  * This file is the films, the menu, the config and the module's
  * lifetime. develop.c is one frame, watch.c is the queue and the tasks
- * around it, screen.c is the label and the picker; soupeng.h is what
- * they share. tools/sim700d runs all four on the desktop against a mock
- * of the camera, which is where the queue and the picker are tested.
+ * around it, screen.c is the label and the keys, ui.c is the film screen;
+ * soupeng.h is what they share. tools/sim700d runs all five on the desktop
+ * against a mock of the camera, which is where the queue and the keys are
+ * tested.
  */
 #include "soupeng.h"
 
@@ -42,9 +43,14 @@ CONFIG_INT("soupeng.size",   se_size,        0);   /* 0 half, 1 full, 2 quarter 
 
 /* The numbering is the order the choices were added in, so a saved
  * config keeps meaning what it meant. */
-int se_scale(void) { return se_size == 1 ? 1 : se_size == 2 ? 4 : 2; }
-const char *se_size_name(void) { return se_size == 1 ? "full" : se_size == 2 ? "quarter" : "half"; }
+int se_scale(int size) { return size == 1 ? 1 : size == 2 ? 4 : 2; }
+const char *se_size_name(int size) { return size == 1 ? "full" : size == 2 ? "quarter" : "half"; }
 CONFIG_INT("soupeng.auto",   se_auto,        1);   /* develop every shot */
+CONFIG_INT("soupeng.roll",   se_roll_on,     0);   /* count a roll: no size, a counter */
+CONFIG_INT("soupeng.rollno", se_roll_no,     1);
+CONFIG_INT("soupeng.rollct", se_roll_shot,   0);
+CONFIG_INT("soupeng.colour", se_ui_colour,   0);   /* 0 night, 1 ember, 2 mono */
+CONFIG_INT("soupeng.idle",   se_ui_idle,    20);   /* seconds */
 
 static void se_menu_film_max(void);       /* defined below the menu table  */
 
@@ -330,14 +336,17 @@ static MENU_UPDATE_FUNC(se_rescan_update)
     MENU_SET_VALUE("%d found", se_nstocks);
 }
 
-static MENU_SELECT_FUNC(se_rescan_select)
+void se_rescan(void)
 {
-    if (se_busy) return;
+    /* a queued frame holds its film by place in the list */
+    if (se_busy || se_q_count()) return;
     se_scan_stocks();
     se_select_remembered();
     se_menu_film_max();
     se_log_flush();
 }
+
+static MENU_SELECT_FUNC(se_rescan_select) { se_rescan(); }
 
 /* The top-level line shows the chosen film without opening the submenu. */
 static MENU_UPDATE_FUNC(se_top_update)
@@ -363,7 +372,7 @@ static struct menu_entry se_menu[] =
         .name           = "Soup Engine",
         .select         = menu_open_submenu,
         .update         = se_top_update,
-        .help           = "Film looks, in the camera. INFO in shooting mode opens the film picker; wheel or arrows move, SET chooses.",
+        .help           = "Film looks, in the camera. INFO in shooting mode opens the film screen.",
         .help2          = "Films are the .fs files in ML/FILM on the card.",
         .submenu_width  = 710,
         .children       = (struct menu_entry[]) {
@@ -435,17 +444,21 @@ static unsigned int se_module_init(void)
     se_scan_stocks();
     se_select_remembered();
     se_menu_film_max();
+    se_ui_avail = se_nstocks && file_size("ML/DATA/SOUPUI.BIN") > 0;
+    FIO_CreateDirectory("ML/PRINTS");
 
     menu_add("Shoot", se_menu, COUNT(se_menu));
     if (se_nstocks) se_resume_cut();
     task_create("soup_dev", 0x1c, 0x8000, se_worker_task, 0);
+    /* above the develop, or the screen would stall behind it for a frame */
+    task_create("soup_ui", 0x1b, 0x2000, se_ui_task, 0);
 
     /* The build's date and time, so the log says which soupeng.mo ran:
      * a card that kept an older copy looks exactly like a new bug. */
-    se_logf("soupeng built %s %s; engine format %d, %d films, film %s, size %s, auto %s; free: malloc %d KB, AllocateMemory %d KB",
-            __DATE__, __TIME__,
+    se_logf("soupeng built %s %s; film screen %s; engine format %d, %d films, film %s, size %s, auto %s; free: malloc %d KB, AllocateMemory %d KB",
+            __DATE__, __TIME__, se_ui_avail ? "on" : "off (no ML/DATA/SOUPUI.BIN)",
             SE_STOCK_VERSION, se_nstocks, se_nstocks ? se_stocks[se_stock_index].name : "-",
-            se_size_name(), se_auto ? "on" : "off",
+            se_size_name(se_size), se_auto ? "on" : "off",
             GetFreeMemForMalloc() >> 10, GetFreeMemForAllocateMemory() >> 10);
     se_log_flush();
     return 0;
@@ -473,4 +486,9 @@ MODULE_CONFIGS_START()
     MODULE_CONFIG(se_stock_id)
     MODULE_CONFIG(se_size)
     MODULE_CONFIG(se_auto)
+    MODULE_CONFIG(se_roll_on)
+    MODULE_CONFIG(se_roll_no)
+    MODULE_CONFIG(se_roll_shot)
+    MODULE_CONFIG(se_ui_colour)
+    MODULE_CONFIG(se_ui_idle)
 MODULE_CONFIGS_END()

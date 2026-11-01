@@ -133,6 +133,7 @@ typedef struct {
     uint32_t     hash;
     int          err;
     int          aborted;     /* power-off during the frame */
+    int          preview;     /* the rows are also going to prints.c */
 } look_ctx;
 
 /* One finished row, on its way out of the look stage. The hash is taken
@@ -143,6 +144,7 @@ static int look_emit(void *ctx, const uint8_t *row, int width)
 {
     look_ctx *L = (look_ctx *)ctx;
     L->hash = se_hash_bytes(L->hash, row, width * 3);
+    if (L->preview) se_pv_row(row);
     if (se_jpeg_write_rows(L->enc, row, 1) != SE_OK) { L->err = 1; return -1; }
     return 0;
 }
@@ -260,6 +262,73 @@ static int pv_read(void *ctx, uint32_t off, void *dst, uint32_t n)
     return 0;
 }
 
+/* The rows of a print being read back, for a preview it never had. */
+static int view_rows(void *ctx, const uint8_t *rgb, int nrows, int width)
+{
+    int i;
+    if (ml_shutdown_requested) return -1;
+    for (i = 0; i < nrows; i++, rgb += width * 3) se_pv_row(rgb);
+    return 0;
+}
+
+/*
+ * A print older than previews: decode it and keep the small copy. The film's
+ * name is in the JPEG's EXIF as Software, and looking for each known name in
+ * the header is less code than walking the EXIF.
+ */
+int se_make_preview(int no)
+{
+    char path[FIO_MAX_PATH_LENGTH], film[32];
+    uint8_t *hdr = 0, *amem = 0;
+    FILE *in = 0;
+    se_pvrd rd;
+    se_arena arena;
+    se_jdec_info ji;
+    uint32_t size, got;
+    int scale, ow, oh, i, rc = -1;
+
+    se_flm_path(no, path, sizeof path);
+    size = file_size(path);
+    if (!size) return -1;
+    memset(&rd, 0, sizeof rd);
+    hdr = fio_malloc(SE_HDR_BYTES);
+    rd.bounce = fio_malloc(SE_BOUNCE);
+    amem = __mem_malloc(SE_ARENA, MEM_TEMPORARY, __FILE__, __LINE__);
+    in = FIO_OpenFile(path, O_RDONLY | O_SYNC);
+    if (!hdr || !rd.bounce || !amem || !in) goto done;
+    got = size < SE_HDR_BYTES ? size : SE_HDR_BYTES;
+    if (read_at(in, 0, hdr, got) != 0) goto done;
+    if (se_jpeg_dec_info(hdr, got, &ji) != SE_OK) goto done;
+
+    scale = ji.width >= 2592 ? 4 : ji.width >= 1296 ? 2 : 1;
+    se_jpeg_scaled_size(ji.width, ji.height, scale, &ow, &oh);
+    if (se_pv_begin(ow) != 0) goto done;
+
+    film[0] = 0;
+    for (i = 0; i < se_nstocks && !film[0]; i++) {
+        int n = (int)strlen(se_stocks[i].name), p, lim = (got < 4096 ? (int)got : 4096) - n;
+        for (p = 0; p < lim; p++)
+            if (hdr[p] == (uint8_t)se_stocks[i].name[0] && memcmp(hdr + p, se_stocks[i].name, (size_t)n) == 0) {
+                snprintf(film, sizeof film, "%s", se_stocks[i].name);
+                break;
+            }
+    }
+
+    rd.f = in; rd.base = 0; rd.total = size;
+    se_arena_init(&arena, amem, SE_ARENA);
+    if (se_jpeg_decode_stream_scaled(hdr, got, size, pv_read, &rd, scale, &arena, view_rows, 0, &ji) == SE_OK) {
+        se_pv_save(no, film, ji.width >= 5184 ? 1 : ji.width >= 2592 ? 0 : 2, size);
+        rc = 0;
+    }
+done:
+    se_pv_abort();
+    if (in) FIO_CloseFile(in);
+    if (amem) free(amem);
+    if (rd.bounce) fio_free(rd.bounce);
+    if (hdr) fio_free(hdr);
+    return rc;
+}
+
 /*
  * Develop one frame from the preview Canon embedded in it.
  *
@@ -350,6 +419,7 @@ se_err se_develop_preview(const char *cr2_path, const char *out_path,
     rc = se_look_begin(&L.run, &lk, R->ow, &arena);
     if (rc != SE_OK) { se_logf("look stage refused at %d wide", R->ow); goto done; }
     L.ow = R->ow; L.hash = FNV_INIT; L.enc = enc;
+    L.preview = se_pv_begin(R->ow) == 0;
 
     /* --- encode -------------------------------------------------------- */
     out.f = FIO_CreateFile(out_path);
@@ -391,6 +461,9 @@ se_err se_develop_preview(const char *cr2_path, const char *out_path,
 done:
     if (out.f) FIO_CloseFile(out.f);
     if (rc != SE_OK && out.f) FIO_RemoveFile(out_path);
+    if (rc == SE_OK && L.preview)
+        se_pv_save(se_file_no(out_path), st->name, scale == 1 ? 1 : scale == 4 ? 2 : 0, (uint32_t)out.bytes);
+    else se_pv_abort();
     if (in) FIO_CloseFile(in);
     if (out.buf) fio_free(out.buf);
     if (amem) free(amem);

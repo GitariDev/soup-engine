@@ -106,7 +106,7 @@ out/previewcheck: $(PREVIEW_SRC) $(wildcard engine/*.h)
 # develops a frame and compares it with previewcheck byte for byte, then
 # drives the watcher and the picker. See tools/sim700d/sim.c.
 SIM700D_SRC = tools/sim700d/sim.c ml/700d/soupeng.c ml/700d/develop.c \
-              ml/700d/watch.c ml/700d/screen.c
+              ml/700d/watch.c ml/700d/screen.c ml/700d/ui.c ml/700d/prints.c
 SIM700D_ENG = engine/se.c engine/wb.c engine/cr2.c engine/color.c engine/debayer.c \
               engine/lut.c engine/stock.c engine/grade.c engine/jpeg_enc.c \
               engine/jpeg_dec.c engine/pipeline.c engine/look.c
@@ -114,13 +114,13 @@ SIM700D_ENG = engine/se.c engine/wb.c engine/cr2.c engine/color.c engine/debayer
 out/sim700d: $(SIM700D_SRC) tools/sim700d/ml.h ml/700d/soupeng.h $(SIM700D_ENG) $(wildcard engine/*.h)
 	@mkdir -p out
 	@# the module's sources see the mock through <ml.h>; the engine's see the host libc
-	@for f in ml/700d/soupeng.c ml/700d/develop.c ml/700d/watch.c ml/700d/screen.c; do \
+	@for f in ml/700d/soupeng.c ml/700d/develop.c ml/700d/watch.c ml/700d/screen.c ml/700d/ui.c ml/700d/prints.c; do \
 	   cc -std=gnu99 -O1 -g $(SDK) -Itools/sim700d -Iml/700d -Iengine -Wall -Wno-unused-function \
 	      -c -o out/sim700d_`basename $$f .c`.o $$f || exit 1; done
 	@cc -std=gnu99 -O1 -g $(SDK) -Itools/sim700d -Iengine -DSE_HOSTED -Wall -Wno-unused-function \
 	   -c -o out/sim700d_sim.o tools/sim700d/sim.c
 	@cc -std=c99 -O1 -g -DSE_HOSTED $(SDK) -Iengine -o $@ \
-	   out/sim700d_sim.o out/sim700d_soupeng.o out/sim700d_develop.o out/sim700d_watch.o out/sim700d_screen.o \
+	   out/sim700d_sim.o out/sim700d_soupeng.o out/sim700d_develop.o out/sim700d_watch.o out/sim700d_screen.o out/sim700d_ui.o out/sim700d_prints.o \
 	   $(SIM700D_ENG) -lm -lpthread 2>&1 | grep -v 'reducing alignment' || true
 	@test -x $@
 
@@ -142,8 +142,9 @@ payload:
 card-700d: vendor-700d
 	@$(MAKE) -s -C ml/700d
 	@rm -rf out/card-700d
-	@mkdir -p out/card-700d/ML/modules out/card-700d/ML/FILM out/card-700d/ML/SETTINGS
+	@mkdir -p out/card-700d/ML/modules out/card-700d/ML/FILM out/card-700d/ML/SETTINGS out/card-700d/ML/DATA
 	@cp ml/700d/build/soupeng.mo out/card-700d/ML/modules/
+	@cp ml/700d/data/SOUPUI.BIN out/card-700d/ML/DATA/
 	@cp stocks/*.fs out/card-700d/ML/FILM/
 	@touch out/card-700d/ML/SETTINGS/soupeng.en
 	@echo "out/card-700d: $$(ls out/card-700d/ML/FILM | wc -l | tr -d ' ') films, soupeng.mo $$(stat -f%z ml/700d/build/soupeng.mo 2>/dev/null || stat -c%s ml/700d/build/soupeng.mo) bytes"

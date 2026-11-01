@@ -1,7 +1,7 @@
 /*
  * ml.h (simulator) - Magic Lantern, faked on the desktop.
  *
- * This stands in for ml/700d/ml.h so that the module's four real sources
+ * This stands in for ml/700d/ml.h so that the module's five real sources
  * can be compiled and run on a machine where they can be debugged. The
  * module reaches Magic Lantern through that one header and nothing else,
  * so substituting it is enough.
@@ -16,6 +16,9 @@
  *   - the card is a directory, so what the module wrote can be compared
  *     with what the desktop computes, byte for byte;
  *   - the screen is a 720x480 grid and a draw outside it is an error;
+ *   - the bitmap layer is real memory with a real palette behind it, so
+ *     what the film screen paints can be looked at, and the palette, the
+ *     front buffer and the memory can all be checked after it closes;
  *   - task_create makes a real thread, msleep really sleeps, and
  *     ml_shutdown_requested really is read by the worker.
  *
@@ -39,6 +42,8 @@ int    snprintf(char *s, size_t n, const char *fmt, ...);
 int    vsnprintf(char *s, size_t n, const char *fmt, va_list ap);
 size_t strlen(const char *s);
 int    strcmp(const char *a, const char *b);
+int    strncmp(const char *a, const char *b, size_t n);
+int    memcmp(const void *a, const void *b, size_t n);
 char  *strcpy(char *d, const char *s);
 void  *memcpy(void *d, const void *s, size_t n);
 void  *memset(void *d, int c, size_t n);
@@ -114,6 +119,19 @@ void   bmp_fill(uint8_t color, int x, int y, int w, int h);
 void   bmp_draw_rect(int color, int x, int y, int w, int h);
 void   NotifyBox(int timeout, char *fmt, ...);
 #define COLOR_RED   0x08
+extern uint32_t LCD_Palette[];
+void     EngDrvOut(uint32_t reg, uint32_t value);
+uint32_t shamem_read(uint32_t addr);
+uint8_t *bmp_vram_real(void);
+void     bmp_draw_to_idle(int value);
+void     canon_gui_disable_front_buffer(void);
+void     canon_gui_enable_front_buffer(int also_redraw);
+#ifndef SE700_SIM_DRIVER
+struct tm { int tm_sec, tm_min, tm_hour, tm_mday, tm_mon, tm_year, tm_wday, tm_yday, tm_isdst; };
+#else
+struct tm;
+#endif
+void     LoadCalendarFromRTC(struct tm *tm);
 #define FONT_ALIGN_RIGHT 0x02000000   /* x is the text's right edge */
 int    gui_menu_shown(void);
 int    display_is_on(void);
@@ -124,7 +142,12 @@ extern int gui_state;                 /* Canon's: 0 is the idle shooting screen 
 #define GUISTATE_IDLE 0
 int    get_gui_mode(void);            /* Canon's dialog: 0 is none */
 int    is_hdr_bracketing_enabled(void);
-struct lens_info_sim { unsigned job_state; };
+struct lens_info_sim { unsigned job_state; char name[32]; unsigned focal_len; uint8_t raw_aperture, raw_shutter, raw_iso; };
+const char *lens_format_aperture(int raw);
+const char *lens_format_shutter(int raw);
+const char *lens_format_iso(int raw);
+void fake_simple_button(int code);
+int  FIO_CreateDirectory(const char *name);
 extern struct lens_info_sim lens_info;
 
 /* -------------------------------------------------------------- keys */

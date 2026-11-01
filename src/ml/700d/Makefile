@@ -16,7 +16,7 @@ ENGINE      = ../../engine
 
 ENGINE_SRC  = se.c wb.c cr2.c color.c debayer.c lut.c stock.c grade.c \
               jpeg_enc.c jpeg_dec.c pipeline.c look.c
-MODULE_SRC  = soupeng.c develop.c watch.c screen.c
+MODULE_SRC  = soupeng.c develop.c watch.c screen.c ui.c prints.c
 MODULE_OBJS = $(addprefix $(BUILD_DIR)/, $(MODULE_SRC:.c=.o)) \
               $(addprefix $(BUILD_DIR)/, $(ENGINE_SRC:.c=.o))
 
@@ -53,6 +53,11 @@ $(BUILD_DIR)/look.o: $(ENGINE)/look.c | $(BUILD_DIR)
 $(BUILD_DIR)/jpeg_dec.o: $(ENGINE)/jpeg_dec.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(CDEPS_FLAGS) -O2 -c -o $@ $<
 $(BUILD_DIR)/jpeg_enc.o: $(ENGINE)/jpeg_enc.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(CDEPS_FLAGS) -O2 -c -o $@ $<
+
+$(BUILD_DIR)/ui.o: ui.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(CDEPS_FLAGS) -O2 -c -o $@ $<
+$(BUILD_DIR)/prints.o: prints.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(CDEPS_FLAGS) -O2 -c -o $@ $<
 
 $(BUILD_DIR)/%.o: $(ENGINE)/%.c | $(BUILD_DIR)

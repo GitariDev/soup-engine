@@ -13,8 +13,10 @@ CARD=out/sim700d-card
 [ -f "$SAMPLE" ] || { echo "sim700d: no sample raw"; exit 2; }
 
 rm -rf "$CARD"
-mkdir -p "$CARD/ML/FILM" "$CARD/ML/LOGS" "$CARD/DCIM/100CANON"
+mkdir -p "$CARD/ML/FILM" "$CARD/ML/LOGS" "$CARD/ML/DATA" "$CARD/DCIM/100CANON"
 cp stocks/*.fs "$CARD/ML/FILM/"
+cp ml/700d/data/SOUPUI.BIN "$CARD/ML/DATA/"
+rm -rf "$CARD/ML/PRINTS"
 cp "$SAMPLE" "$CARD/sample.CR2"
 
 # The module boots on the first film by name order when nothing is

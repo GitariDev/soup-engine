@@ -1,9 +1,36 @@
 /*
- * screen.c - the label on the shooting screen, and the INFO picker.
+ * screen.c - the label on the shooting screen, and what the keys do.
  */
 #include "soupeng.h"
 
 /*
+ * INFO opens the film screen, ui.c, when the pack is on the card and there
+ * is memory for it. What follows the next heading is the plain list, which
+ * is what shows when there is not: a film can always be chosen.
+ *
+ * On the film screen the left and right arrows and the dial move along the
+ * films, up and down jump between shelves and SET loads one. PLAY flips
+ * Auto develop and Trash steps Quality: they sit side by side, so the left
+ * button is the toggle on the left and the right button the one on the
+ * right. Q develops the last shot, MENU goes to Home, and INFO and the
+ * half-press behave as they always have: on to Canon, and a picture is never
+ * lost to a menu.
+ *
+ * Home leads to the Darkroom, Prints, Roll, Lens and System. Each is a page
+ * of ui.c on the same task, and se_ui_page_key is their keys: up and down
+ * move, SET acts, MENU goes back one step, Trash closes. The exception is
+ * the print viewer, where Trash deletes a print and asks first.
+ *
+ * AE lock and AF point were the first choice, and the first camera run
+ * ended that: on the idle screen neither ever reaches a module, in either
+ * callback, so Canon acts on them and there is nothing to take.
+ *
+ * Nothing here draws. The key callback runs on Canon's GUI task, which must
+ * not wait for a repaint, so it changes the choice, leaves a note, and the
+ * soup_ui task does the rest. se_ui_state and se_ui_quit are that note.
+ *
+ * ---
+ *
  * Two things on Canon's shooting screen, both drawn on Magic Lantern's
  * bitmap layer over it.
  *
@@ -68,8 +95,21 @@
  * open. Everything else in the raw stream -- Canon's own notifications
  * among them -- is left alone.
  */
-static int se_pick_open, se_pick_sel, se_pick_idle;
+static int se_pick_open, se_pick_idle;
+int se_pick_sel;               /* the highlight: a row of the list, or a place in the carousel */
 static int se_set_taken;        /* a SET press chose; its release is ours too */
+
+int se_ui_avail;                /* SOUPUI.BIN is on the card */
+enum { UI_NONE, UI_LOADING, UI_LIVE, UI_LOADED };
+volatile int se_ui_state;
+volatile int se_ui_quit;        /* close; the task does it within 20 ms */
+static volatile int se_ui_dirty;
+static volatile int se_ui_goto;          /* the page the task should show */
+enum { ACT_NONE, ACT_DELETE, ACT_RESCAN, ACT_DONE_ROW };
+static volatile int se_ui_act;           /* card work for the task, not the GUI */
+static int se_ui_after;                  /* a button to fake once closed */
+
+int se_menu_is_open(void) { return se_pick_open || se_ui_state != UI_NONE; }
 
 /* Raw button codes whose press the picker took; the release is taken
  * when it comes, whether or not the picker is still open. */
@@ -115,17 +155,17 @@ void se_draw_status(void)
 {
     static int status_len, warn_len;
     char text[80];
-    if (!se_nstocks || se_pick_open) return;
+    if (!se_nstocks || se_menu_is_open()) return;
     if (gui_menu_shown() || lv || is_play_mode() || !display_is_on()) return;
     if (se_stock_index < 0 || se_stock_index >= se_nstocks) se_stock_index = 0;
     if (se_busy) {
         char prog[48];
         se_count_waiting();
         se_progress_text(prog, sizeof prog);
-        snprintf(text, sizeof text, "SOUP %s %s", se_stocks[se_stock_index].name, prog);
+        snprintf(text, sizeof text, "SOUP %s %s", se_stocks[se_job_stock].name, prog);
     } else {
         snprintf(text, sizeof text, "SOUP %s  %s%s", se_stocks[se_stock_index].name,
-                 se_size_name(), se_auto ? "" : "  manual");
+                 se_size_name(se_size), se_auto ? "" : "  manual");
     }
     se_bottom(text, COLOR_WHITE, SE_BOTTOM_Y, &status_len);
     if (is_hdr_bracketing_enabled())
@@ -240,7 +280,11 @@ static void se_pick_choose(void)
  * put back if Canon drew over it. */
 void se_screen_tick(void)
 {
-    if (se_pick_open) {
+    if (se_ui_state != UI_NONE) {
+        /* front buffer off, so a dialog of Canon's would open unseen: if
+         * this stopped being the bare shooting screen, get out of the way */
+        if (!se_shooting_screen() || ++se_pick_idle > se_ui_idle) se_ui_quit = 1;
+    } else if (se_pick_open) {
         if (++se_pick_idle > 6) se_pick_close(0);
         else se_pick_draw(0);       /* Canon may have painted over it */
     } else {
@@ -298,6 +342,364 @@ static void se_take(int raw_press)
     if (raw_press >= 0 && raw_press < (int)sizeof se_taken) se_taken[raw_press] = 1;
 }
 
+/* ------------------------------------------------------ the film screen */
+
+/* The first time each button is seen, for the log: which ones reach a
+ * module on the idle screen is something only a camera can say. */
+static void se_ui_saw(unsigned int key)
+{
+    static uint32_t seen[2];
+    if (key >= 64 || (seen[key >> 5] >> (key & 31)) & 1) return;
+    seen[key >> 5] |= 1u << (key & 31);
+    se_logf("ui: key %d reaches the module", (int)key);
+}
+
+static void se_ui_load_film(void)
+{
+    int stock = se_ui_stock(se_pick_sel);
+    if (stock == se_stock_index) { se_ui_quit = 1; return; }
+    se_stock_index = stock;
+    se_stock_id = (int)se_name_id(se_stocks[stock].name);
+    if (se_roll_on) { se_roll_no++; se_roll_shot = 0; }  /* a new film, a new roll */
+    se_ui_state = UI_LOADED;
+}
+
+/* The next size up, wrapping. The config's numbering is the order the sizes
+ * were added in, which is not an order anyone would step through. */
+static void se_ui_next_size(void)
+{
+    se_size = se_size == 2 ? 0 : se_size == 0 ? 1 : 2;
+    se_ui_dirty = 1;
+}
+
+/*
+ * Anything else raw that goes past while the screen is up. AE lock and AF
+ * point do not arrive as the codes Magic Lantern has for them; if they arrive
+ * at all it is as something else, and this is how to find out: a few of each
+ * code, with what travels with it. Magic Lantern's own note says some
+ * buttons share one unnamed event, which is what obj and arg are here for.
+ */
+static void se_ui_saw_raw(struct event *ev)
+{
+    static uint8_t count[128];
+    int code = ev->param;
+    if (code < 0 || code >= (int)sizeof count || count[code] >= 4) return;
+    count[code]++;
+    se_logf("ui: raw %x obj %x arg %x", code, (int)(uintptr_t)ev->obj, ev->arg);
+}
+
+static void se_ui_develop_last(void)
+{
+    char cr2[FIO_MAX_PATH_LENGTH];
+    if (se_newest_cr2(cr2, sizeof cr2) != 0) { se_ui_toast("No raw to develop"); }
+    else if (!se_q_push(cr2, 1))             { se_ui_toast("Queue full"); }
+    else                                     { se_ui_toast("Developing the last shot"); }
+    se_ui_dirty = 1;
+}
+
+/* The arrows and the dial as a step along a list: -1, 1, or 0 for neither. */
+static int se_ui_step(unsigned int key, int *horizontal)
+{
+    *horizontal = key == MODULE_KEY_PRESS_LEFT || key == MODULE_KEY_PRESS_RIGHT;
+    switch (key) {
+    case MODULE_KEY_WHEEL_UP: case MODULE_KEY_WHEEL_LEFT:
+    case MODULE_KEY_PRESS_UP: case MODULE_KEY_PRESS_LEFT:   return -1;
+    case MODULE_KEY_WHEEL_DOWN: case MODULE_KEY_WHEEL_RIGHT:
+    case MODULE_KEY_PRESS_DOWN: case MODULE_KEY_PRESS_RIGHT: return 1;
+    }
+    return 0;
+}
+
+static void se_ui_show_page(int page) { se_ui_goto = page; se_ui_dirty = 1; }
+
+static void se_ui_queue_raw(int no)
+{
+    char cr2[FIO_MAX_PATH_LENGTH];
+    se_cr2_path(no, cr2, sizeof cr2);
+    if (!se_q_push(cr2, 1)) se_ui_toast("Queue full");
+}
+
+/* Keys on the pages behind Home. */
+static unsigned int se_ui_page_key(unsigned int key)
+{
+    int horiz, dir = se_ui_step(key, &horiz), n;
+    int page = se_ui_goto;
+
+    se_take(se_raw_press(key));
+    if (key == MODULE_KEY_PRESS_SET) se_set_taken = 1;
+
+    if (se_ui_sheet) {
+        if (key == MODULE_KEY_PRESS_SET) { se_ui_sheet = 0; se_ui_act = ACT_DELETE; }
+        else if (key == MODULE_KEY_MENU) { se_ui_sheet = 0; }
+        se_ui_dirty = 1;
+        return 0;
+    }
+    if (key == MODULE_KEY_TRASH && page != PG_VIEW) { se_ui_quit = 1; return 0; }
+    if (key == MODULE_KEY_MENU) { se_ui_show_page(page == PG_HOME ? -1 : page == PG_VIEW ? PG_PRINTS : PG_HOME); return 0; }
+
+    switch (page) {
+    case PG_HOME:
+        if (dir) se_home_sel = (se_home_sel + SE_HOME_ROWS + dir) % SE_HOME_ROWS;
+        else if (key == MODULE_KEY_PLAY) { se_ui_show_page(PG_PRINTS); return 0; }
+        else if (key == MODULE_KEY_PRESS_SET) {
+            static const int to[SE_HOME_ROWS] = { PG_FILM, PG_DARK, PG_PRINTS, -1, PG_LENS, PG_SYSTEM };
+            if (se_home_sel == 3) se_roll_on = !se_roll_on;
+            else { se_ui_show_page(to[se_home_sel]); return 0; }
+        }
+        break;
+    case PG_DARK:
+        n = se_ui_dark_count();
+        if (dir && n) se_dark_sel = (se_dark_sel + n + dir) % n;
+        else if (key == MODULE_KEY_PRESS_SET) {
+            int no = se_ui_dark_raw(se_dark_sel);
+            if (no >= 0) se_ui_queue_raw(no);
+        } else if (key == MODULE_KEY_Q) {
+            int i, added = 0;
+            for (i = se_nraws - 1; i >= 0 && se_q_count() < SE_QUEUE; i--) {
+                int before = se_q_tail;
+                char cr2[FIO_MAX_PATH_LENGTH];
+                se_cr2_path(se_raws[i], cr2, sizeof cr2);
+                se_q_push(cr2, 1);
+                if (se_q_tail != before) added++;
+            }
+            se_ui_toast(added ? "Queued" : se_q_count() >= SE_QUEUE ? "Queue full" : "Nothing to develop");
+        }
+        break;
+    case PG_PRINTS:
+        n = se_nprints;
+        if (dir && n) {
+            int s = se_print_sel + dir * (horiz ? 1 : 3);
+            if (key == MODULE_KEY_WHEEL_LEFT || key == MODULE_KEY_WHEEL_RIGHT || key == MODULE_KEY_WHEEL_UP || key == MODULE_KEY_WHEEL_DOWN) s = se_print_sel + dir;
+            se_print_sel = s < 0 ? 0 : s >= n ? n - 1 : s;
+        } else if (key == MODULE_KEY_PRESS_SET && n) { se_ui_show_page(PG_VIEW); return 0; }
+        break;
+    case PG_VIEW:
+        n = se_nprints;
+        if (dir && n) se_print_sel = (se_print_sel + n + dir) % n;
+        else if (key == MODULE_KEY_TRASH && n) se_ui_sheet = 1;
+        else if (key == MODULE_KEY_Q && n) {
+            char cr2[FIO_MAX_PATH_LENGTH];
+            se_cr2_path(se_prints[se_print_sel], cr2, sizeof cr2);
+            if (!file_size(cr2)) se_ui_toast("No raw on the card");
+            else if (!se_q_push(cr2, 1)) se_ui_toast("Queue full");
+            else se_ui_toast("Redeveloping");
+        }
+        break;
+    case PG_SYSTEM:
+        if (dir) se_sys_sel = (se_sys_sel + SE_SYS_ROWS + dir) % SE_SYS_ROWS;
+        else if (key == MODULE_KEY_PRESS_SET) {
+            switch (se_sys_sel) {
+            case 0: se_ui_colour = (se_ui_colour + 1) % 3; se_ui_act = ACT_DONE_ROW; break;
+            case 1: se_ui_idle = se_ui_idle == 6 ? 20 : se_ui_idle == 20 ? 60 : 6; break;
+            case 2: se_ui_act = ACT_RESCAN; break;
+            default: se_ui_after = BGMT_MENU; se_ui_quit = 1; break;
+            }
+        }
+        break;
+    }
+    se_ui_dirty = 1;
+    return 0;
+}
+
+/* Keys while the film screen is up, or on its way, or on its way out. */
+static unsigned int se_ui_key(unsigned int key)
+{
+    int n;
+
+    if (se_ui_quit) return 1;              /* closing: it is all Canon's again */
+    se_pick_idle = 0;
+    se_ui_saw(key);
+
+    switch (key) {
+    case MODULE_KEY_PRESS_HALFSHUTTER:
+    case MODULE_KEY_PRESS_FULLSHUTTER:
+        se_ui_quit = 1;
+        return 1;                          /* the shot is taken */
+    case MODULE_KEY_UNPRESS_HALFSHUTTER:
+    case MODULE_KEY_UNPRESS_FULLSHUTTER:
+    case MODULE_KEY_UNTOUCH_1_FINGER:
+    case MODULE_KEY_UNTOUCH_2_FINGER:
+    case MODULE_KEY_TOUCH_1_FINGER:        /* se_raw_cbr logs these and takes them */
+    case MODULE_KEY_TOUCH_2_FINGER:
+        return 1;
+    case MODULE_KEY_INFO:
+        se_ui_quit = 1;
+        return 1;                          /* on to Canon */
+    case MODULE_KEY_UNPRESS_SET:
+        if (!se_set_taken) return 1;
+        se_set_taken = 0;
+        return 0;
+    case MODULE_KEY_UNPRESS_UDLR:
+        return 0;                          /* the releases of arrows we took */
+    }
+
+    if (se_ui_state == UI_LOADING) {       /* a fifth of a second: nothing to act on yet */
+        se_take(se_raw_press(key));
+        return 0;
+    }
+    if (se_ui_state == UI_LOADED) {        /* any button ends the Loaded moment */
+        se_take(se_raw_press(key));
+        se_ui_quit = 1;
+        return 0;
+    }
+
+    if (se_ui_goto != PG_FILM) return se_ui_page_key(key);
+
+    n = se_ui_count();
+    switch (key) {
+    case MODULE_KEY_MENU:
+        se_ui_show_page(PG_HOME);
+        return 0;
+    case MODULE_KEY_WHEEL_UP:  case MODULE_KEY_WHEEL_LEFT:  case MODULE_KEY_PRESS_LEFT:
+        se_pick_sel = (se_pick_sel + n - 1) % n;
+        break;
+    case MODULE_KEY_WHEEL_DOWN: case MODULE_KEY_WHEEL_RIGHT: case MODULE_KEY_PRESS_RIGHT:
+        se_pick_sel = (se_pick_sel + 1) % n;
+        break;
+    case MODULE_KEY_PRESS_UP:
+        se_pick_sel = se_ui_shelf_jump(se_pick_sel, -1);
+        break;
+    case MODULE_KEY_PRESS_DOWN:
+        se_pick_sel = se_ui_shelf_jump(se_pick_sel, 1);
+        break;
+    case MODULE_KEY_PRESS_SET:
+        se_set_taken = 1;
+        se_ui_load_film();
+        return 0;
+    case MODULE_KEY_PLAY:
+        se_auto = !se_auto;
+        se_ui_dirty = 1;
+        return 0;
+    case MODULE_KEY_TRASH:
+        se_ui_next_size();
+        return 0;
+    case MODULE_KEY_Q:
+        se_ui_develop_last();
+        return 0;
+    default:
+        /* LV, anything else with a name: closes, and goes no further.
+         * Its release, if it has one, is taken when it comes. */
+        se_take(se_raw_press(key));
+        se_ui_quit = 1;
+        return 0;
+    }
+    se_take(se_raw_press(key));
+    return 0;
+}
+
+/* The soup_ui task: asleep until INFO, then the whole life of the screen. */
+void se_ui_task(void *arg)
+{
+    while (!ml_shutdown_requested) {
+        int shown, last_flip, last_pal, page = PG_FILM;
+
+        if (se_ui_state == UI_NONE) { msleep(50); continue; }
+
+        if (se_ui_quit || se_ui_open() != 0) {
+            /* No memory, or a half-press already: the plain list if nothing
+             * cancelled, and Canon's screen if something did. */
+            int cancelled = se_ui_quit;
+            se_ui_quit = 0;
+            se_ui_state = UI_NONE;
+            if (!cancelled) se_pick_show();
+            continue;
+        }
+
+        se_pick_sel = se_ui_pos(se_stock_index);
+        shown = se_pick_sel;
+        se_ui_dirty = 0;
+        se_ui_goto = PG_FILM;
+        se_ui_sheet = 0;
+        se_ui_act = ACT_NONE;
+        se_ui_paint(shown);
+        se_ui_state = UI_LIVE;
+        last_flip = last_pal = get_ms_clock();
+
+        while (!se_ui_quit && !ml_shutdown_requested) {
+            int now = get_ms_clock();
+
+            if (se_ui_state == UI_LOADED) {
+                se_ui_loaded(&se_ui_quit);
+                break;
+            }
+            if (se_ui_goto < 0) { se_ui_quit = 1; break; }   /* MENU on Home */
+            if (se_ui_goto != page) {
+                page = se_ui_goto;
+                se_ui_enter(page);
+                if (page == PG_FILM) { shown = se_pick_sel = se_ui_pos(se_stock_index); }
+                se_ui_dirty = 1;
+            }
+            if (se_ui_act != ACT_NONE) {
+                int act = se_ui_act;
+                se_ui_act = ACT_NONE;
+                if (act == ACT_DELETE && se_nprints) {
+                    char flm[FIO_MAX_PATH_LENGTH];
+                    int no = se_prints[se_print_sel];
+                    se_flm_path(no, flm, sizeof flm);
+                    FIO_RemoveFile(flm);
+                    se_pv_remove(no);
+                    se_walk_card();
+                    if (se_print_sel >= se_nprints) se_print_sel = se_nprints ? se_nprints - 1 : 0;
+                    if (!se_nprints) se_ui_goto = page = PG_PRINTS;
+                } else if (act == ACT_RESCAN) {
+                    se_rescan();
+                    se_ui_toast("Films read again");
+                }
+                se_ui_apply_palette();
+                se_ui_dirty = 1;
+            }
+            if (page != PG_FILM) {
+                static int seen_done;
+                if ((page == PG_PRINTS || page == PG_VIEW) && se_ui_prints_tick(page)) se_ui_dirty = 1;
+                if ((page == PG_HOME || page == PG_DARK) && seen_done != se_done) { seen_done = se_done; se_walk_card(); se_ui_dirty = 1; }
+                if (se_ui_dirty || (page != PG_VIEW && se_ui_header_stale()) || (se_ui_toast_live() && now - last_flip > 500)) {
+                    se_ui_dirty = 0;
+                    se_ui_paint_page(page);
+                    last_flip = now;
+                } else if (now - last_flip > 500) { se_ui_reflip(); last_flip = now; }
+            } else if (shown != se_pick_sel) {
+                /* One place along slides; further, because the keys are
+                 * ahead of the screen, goes straight there. */
+                int n = se_ui_count(), fwd = (se_pick_sel - shown + n) % n;
+                int back = (shown - se_pick_sel + n) % n;
+                if (fwd == 1 || back == 1) {
+                    int dir = fwd == 1 ? 1 : -1;
+                    se_ui_slide(shown, dir, 85);
+                    se_ui_slide(shown, dir, 171);
+                }
+                shown = se_pick_sel;
+                se_ui_paint(shown);
+                last_flip = now;
+            } else if (se_ui_dirty) {
+                se_ui_dirty = 0;
+                se_ui_paint(shown);
+                last_flip = now;
+            } else if (se_ui_toast_live() && now - last_flip > 500) {
+                se_ui_paint(shown);        /* it goes when it has had its time */
+                last_flip = now;
+            } else if (se_ui_header_stale()) {
+                se_ui_paint_header();
+            } else if (now - last_flip > 500) {
+                se_ui_reflip();            /* anything that drew straight on the screen */
+                last_flip = now;
+            }
+            if (now - last_pal > 1000) { se_ui_pal_tick(); last_pal = now; }
+            bmp_draw_to_idle(1);           /* see se_ui_open; others clear it */
+            msleep(20);
+        }
+
+        se_ui_close(ml_shutdown_requested);
+        se_ui_quit = 0;
+        se_ui_state = UI_NONE;
+        se_pick_open = 0;
+        if (!ml_shutdown_requested) {
+            se_draw_status();
+            if (!se_busy) se_log_flush();
+            if (se_ui_after) { fake_simple_button(se_ui_after); se_ui_after = 0; }
+        }
+    }
+}
+
 /*
  * Every raw event, after se_key_cbr has let it through. Returning 0
  * keeps it. Two jobs: the releases of presses the picker took, and the
@@ -314,6 +716,17 @@ unsigned int se_raw_cbr(se_ctx_t ctx)
         if (!se_taken[press]) return 1;
         se_taken[press] = 0;
         return 0;
+    }
+    if (se_ui_state != UI_NONE && !se_ui_quit) {
+        se_ui_saw_raw(ev);
+        if (code == BGMT_TOUCH_1_FINGER || code == BGMT_TOUCH_2_FINGER) {
+            /* Does a touch say where? Magic Lantern never looks. A few of
+             * these in the log will show whether anything here moves. */
+            static int logged;
+            if (logged < 8) { logged++; se_logf("ui: touch %x obj %x arg %x", code, (int)(uintptr_t)ev->obj, ev->arg); }
+            se_take(code);
+            return 0;
+        }
     }
     if (se_pick_open && code == BGMT_PRESS_ZOOM_OUT) {
         se_take(code);
@@ -335,13 +748,16 @@ unsigned int se_key_cbr(unsigned int key)
 
     if (key == 0) return 1;
 
+    if (se_ui_state != UI_NONE) return se_ui_key(key);
+
     if (!se_pick_open) {
         if (key == MODULE_KEY_UNPRESS_SET && se_set_taken) {
             se_set_taken = 0;       /* the release of a press that chose */
             return 0;
         }
         if (key == MODULE_KEY_INFO && se_shooting_screen()) {
-            se_pick_show();
+            if (se_ui_avail) { se_pick_idle = 0; se_ui_state = UI_LOADING; }
+            else se_pick_show();
             return 0;
         }
         return 1;                   /* SET and everything else: Canon's */

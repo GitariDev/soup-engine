@@ -34,8 +34,14 @@ int          se_done, se_failed;
  */
 se_job       se_q[SE_QUEUE];
 volatile int se_q_head, se_q_tail;     /* indices, never wrap   */
+volatile int se_preview_want, se_preview_gen;
+int          se_job_stock;             /* the film of the frame in the works */
 
 int se_q_count(void) { return se_q_tail - se_q_head; }
+
+/* Frames shot while the queue was full: the watcher has not reached them. */
+static volatile int se_backlog;
+int se_pending(void) { return se_q_count() + se_backlog; }
 
 se_job *se_q_push(const char *path, int force)
 {
@@ -60,6 +66,8 @@ se_job *se_q_push(const char *path, int force)
     snprintf(j->path, sizeof j->path, "%s", path);
     j->force = force;
     j->ready = force;
+    j->stock = se_stock_index;
+    j->quality = se_size;
     se_q_tail++;
     return j;
 }
@@ -131,20 +139,29 @@ unsigned int se_watch_cbr(unsigned int ctx)
         /* Queue only with auto on, but follow the counter either way: a
          * shot taken with auto off is not a backlog to develop the moment
          * it is switched back on. */
-        if (se_auto && se_nstocks) {
-            int n = se_last_file_number, steps = 0;
-            /* a burst can move the counter by more than one between looks */
-            while (n != num && steps < SE_QUEUE) {
+        int reached = num;
+        int ahead = (num - se_last_file_number + 9999) % 9999;
+        if (se_roll_on && ahead <= SE_BURST) se_roll_shot += ahead;
+        /* A counter that moved a long way is not a burst: it was reset, or
+         * this is another card. Nothing to catch up on. */
+        if (se_auto && se_nstocks && ahead <= SE_BURST) {
+            int n = se_last_file_number;
+            /* a burst can move the counter by more than one between looks,
+             * and one longer than the queue waits here, unread, until there
+             * is room: stopping short keeps those frames for the next look */
+            while (n != num && se_q_count() < SE_QUEUE) {
                 char path[FIO_MAX_PATH_LENGTH];
-                n = n >= 9999 ? 1 : n + 1;
-                snprintf(path, sizeof path, "%s/%s%04d.CR2", get_dcim_dir(), get_file_prefix(), n);
-                if (se_q_push(path, 0)) steps++;
-                else break;
+                int next = n >= 9999 ? 1 : n + 1;
+                snprintf(path, sizeof path, "%s/%s%04d.CR2", get_dcim_dir(), get_file_prefix(), next);
+                if (!se_q_push(path, 0)) break;
+                n = next;
             }
+            reached = n;
         }
-        se_last_file_number = num;
+        se_last_file_number = reached;
         se_last_folder_number = folder;
     }
+    se_backlog = se_auto ? (num - se_last_file_number + 9999) % 9999 : 0;
 
     se_screen_tick();               /* the label, or the picker's timeout */
 
@@ -175,10 +192,11 @@ static void se_develop_job(se_job *j)
     const se_stock *st;
     se_result R;
     se_err rc;
-    int scale = se_scale();
+    int scale = se_scale(j->quality);
 
-    if (se_stock_index < 0 || se_stock_index >= se_nstocks) se_stock_index = 0;
-    st = &se_stocks[se_stock_index];
+    if (j->stock < 0 || j->stock >= se_nstocks) j->stock = 0;
+    st = &se_stocks[j->stock];
+    se_job_stock = j->stock;
     se_out_name(j->path, out, sizeof out);
 
     if (!j->force && file_size(out) > 0) {
@@ -190,7 +208,7 @@ static void se_develop_job(se_job *j)
     se_stage = "starting"; se_pct = 0;
     se_waiting = se_q_count() > 1 ? se_q_count() - 1 : 0;
     se_logf("develop %s + %s, %s size, %d waiting, %d KB free", j->path, st->name,
-            se_size_name(), se_waiting, GetFreeMemForMalloc() >> 10);
+            se_size_name(j->quality), se_waiting, GetFreeMemForMalloc() >> 10);
 
     rc = se_develop_preview(j->path, out, st, scale, &R);
 
@@ -202,7 +220,7 @@ static void se_develop_job(se_job *j)
                 R.bytes >> 10, R.hash);
         se_logf("time: hdr %d read %d stream %d total %d ms; arena peak %d KB",
                 R.ms_hdr, R.ms_read, R.ms_stream, R.ms_total, (int)(R.arena_peak >> 10));
-        if (!ml_shutdown_requested)
+        if (!ml_shutdown_requested && !se_menu_is_open())
             NotifyBox(1500, "Soup: %s %d.%d s", st->name, R.ms_total / 1000, (R.ms_total % 1000) / 100);
     } else if (R.aborted) {
         se_logf("%s abandoned: power off", j->path);
@@ -210,7 +228,7 @@ static void se_develop_job(se_job *j)
         se_failed++;
         snprintf(se_status, sizeof se_status, "failed: %s", se_strerror(rc));
         se_logf("develop failed: %s (rc=%d)", se_strerror(rc), rc);
-        if (!ml_shutdown_requested)
+        if (!ml_shutdown_requested && !se_menu_is_open())
             NotifyBox(3000, "Soup: failed, %s", se_strerror(rc));
     }
     se_busy = 0;
@@ -235,6 +253,15 @@ void se_worker_task(void *arg)
 
     while (!ml_shutdown_requested) {
         int pending = se_q_count() > 0;
+
+        /* someone is looking at a print with no preview: first in the line */
+        if (se_preview_want) {
+            int no = se_preview_want;
+            if (se_make_preview(no) != 0) se_logf("no preview for FLM_%04d", no);
+            se_preview_want = 0;
+            se_preview_gen++;
+            continue;
+        }
 
         if (pending && !held) { powersave_prohibit(); held = 1; }
         if (!pending && held) { powersave_permit();   held = 0; }

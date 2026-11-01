@@ -37,6 +37,7 @@ typedef unsigned int se_ctx_t;
  * this module runs on. They are what gui_main_task receives.
  */
 #ifndef BGMT_PRESS_UP
+#define BGMT_MENU              6
 #define BGMT_PRESS_ZOOM_IN     0xe
 #define BGMT_UNPRESS_ZOOM_IN   0xf
 #define BGMT_PRESS_ZOOM_OUT    0x10
