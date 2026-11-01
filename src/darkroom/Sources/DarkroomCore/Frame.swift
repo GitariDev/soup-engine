@@ -111,13 +111,16 @@ public struct Frame: Sendable, Equatable, Identifiable {
         return rollMatch.reason ?? "No film is recorded for this frame."
     }
 
-    /// Why Print waits, in plain words, or nil when it does not.
-    public var printHold: String? {
-        if !isReadable { return "This CR2 cannot be read." }
+    /// Why this frame does not print, in plain words, or nil when it does.
+    public var holdReason: String? {
+        if !isReadable { return "This CR2 cannot be read" }
         if canPrint { return nil }
-        if let film = developingFilm ?? shotOnFilm?.film {
-            return "\(Film.display(film)) is not on the shelf. Choose a can to print."
-        }
-        return "No film is recorded. Choose a can to print."
+        if let film = developingFilm ?? shotOnFilm?.film { return "\(Film.display(film)) is not on the shelf" }
+        return "No film is recorded"
+    }
+
+    /// Why Print waits, and what to do about it, or nil when it does not.
+    public var printHold: String? {
+        holdReason.map { isReadable ? "\($0). Choose a can to print." : "\($0)." }
     }
 }

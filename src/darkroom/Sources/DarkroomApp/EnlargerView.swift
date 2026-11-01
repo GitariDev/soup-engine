@@ -53,7 +53,8 @@ struct EnlargerView: View {
             Text(notice).font(Theme.font(11)).foregroundColor(Theme.warn).lineLimit(2)
                 .multilineTextAlignment(.center)
         } else if bench.current != nil, bench.comparison?.wipes == true {
-            (Text("Hold ") + Text("Space").bold() + Text(" to see the film it was shot on. Drag the line to wipe between them."))
+            let side = bench.comparison?.film == nil ? "the straight raw" : "the film it was shot on"
+            (Text("Hold ") + Text("Space").bold() + Text(" to see \(side). Drag the line to wipe between them."))
                 .font(Theme.font(11)).foregroundColor(Theme.dim).lineLimit(1)
         }
     }

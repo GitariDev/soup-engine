@@ -148,6 +148,19 @@ public struct PrintPlan: Sendable, Equatable {
 
     public var total: Int { items.count + waiting.count + unreadable.count }
 
+    /// Each reason among these frames once, with how many it holds, in frame order.
+    public static func holds(of frames: [Frame]) -> [(reason: String, count: Int)] {
+        var out: [(reason: String, count: Int)] = []
+        for reason in frames.compactMap(\.holdReason) {
+            if let at = out.firstIndex(where: { $0.reason == reason }) {
+                out[at].count += 1
+            } else {
+                out.append((reason, 1))
+            }
+        }
+        return out
+    }
+
     /// "Print 16 of 28 to ~/Pictures/Soup Prints, 12 wait for a film".
     public var summary: String {
         var s = "Print \(items.count) of \(total) to \(place)"

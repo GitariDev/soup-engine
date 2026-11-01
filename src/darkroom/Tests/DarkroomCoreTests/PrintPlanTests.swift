@@ -50,6 +50,16 @@ final class PrintPlanTests: XCTestCase {
         XCTAssertEqual(Set(names.map { $0.lowercased() }).count, 5, "\(names)")
     }
 
+    func testHoldsSayWhyEachFrameWaits() throws {
+        let r = try Rig()
+        for n in 1...3 { try r.cr2("IMG_000\(n).CR2") }
+        try r.roll(line((100, 1), (100, 1), film: "KODACHROME 64"))
+        let holds = PrintPlan.holds(of: try r.frames())
+        XCTAssertEqual(holds.map(\.reason), ["Kodachrome 64 is not on the shelf", "No film is recorded"])
+        XCTAssertEqual(holds.map(\.count), [1, 2])
+        XCTAssertEqual(try r.frame().printHold, "Kodachrome 64 is not on the shelf. Choose a can to print.")
+    }
+
     func testAFrameListedTwiceIsOneItem() throws {
         let r = try Rig()
         try r.cr2("IMG_0001.CR2")

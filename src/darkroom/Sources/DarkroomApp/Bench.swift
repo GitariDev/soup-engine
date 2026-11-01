@@ -71,7 +71,7 @@ struct BatchRun {
     let total: Int
     let folder: URL
     let place: String
-    let waiting: Int
+    let holds: [(reason: String, count: Int)]
     let unreadable: Int
     var started = 0
     var printed = 0
@@ -755,6 +755,9 @@ final class Bench: ObservableObject {
 
     func isUnreadable(_ frame: Frame) -> Bool { !frame.isReadable || broken.contains(frame.id) }
 
+    /// `Frame.printHold`, with what only the engine has found out.
+    func hold(_ frame: Frame) -> String? { broken.contains(frame.id) ? "This CR2 cannot be read." : frame.printHold }
+
     var canPrintCurrent: Bool {
         guard let frame = current, !isUnreadable(frame) else { return false }
         return frame.canPrint && saveProblem == nil && !printingIDs.contains(frame.id)
@@ -762,8 +765,8 @@ final class Bench: ObservableObject {
 
     func printCurrent() {
         guard let frame = current else { return }
-        guard let film = frame.developingCan, frame.canPrint else {
-            printError = frame.printHold
+        guard let film = frame.developingCan, frame.canPrint, !isUnreadable(frame) else {
+            printError = hold(frame)
             return
         }
         guard !printingIDs.contains(frame.id) else { return }
@@ -814,8 +817,10 @@ final class Bench: ObservableObject {
             notice = saveProblem
             return
         }
+        let waiting = plan.waiting.filter { !isUnreadable($0) }
         batch = BatchRun(total: plan.items.count, folder: folder, place: place(folder),
-                         waiting: plan.waiting.count, unreadable: plan.unreadable.count)
+                         holds: PrintPlan.holds(of: waiting),
+                         unreadable: plan.unreadable.count + plan.waiting.count - waiting.count)
         let items = plan.items
         batchTask = Task { [weak self] in
             await self?.runBatch(items, to: folder)

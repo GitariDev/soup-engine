@@ -165,7 +165,7 @@ struct TrayView: View {
     }
 
     @ViewBuilder private func holdLine(_ frame: Frame) -> some View {
-        if let hold = frame.printHold {
+        if let hold = bench.hold(frame) {
             Text(hold).font(Theme.font(13)).foregroundColor(Theme.accent).modifier(Boxed())
         }
     }
@@ -253,8 +253,8 @@ struct TrayView: View {
                 if batch.notRun > 0 {
                     smallLine("Stopped. \(batch.notRun) not printed.")
                 }
-                if batch.waiting > 0 {
-                    smallLine("Skipped \(batch.waiting): no film.")
+                ForEach(batch.holds, id: \.reason) { hold in
+                    smallLine("Skipped \(hold.count). \(hold.reason).")
                 }
                 if batch.unreadable > 0 {
                     smallLine("Skipped \(batch.unreadable): cannot be read.")

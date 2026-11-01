@@ -187,7 +187,7 @@ enum Driver {
             out["shotOn"] = f.shotOnFilm?.film ?? ""
             out["developing"] = f.developingFilm ?? ""
             out["developed"] = f.isDeveloped
-            out["hold"] = f.printHold ?? ""
+            out["hold"] = bench.hold(f) ?? ""
         }
         if let p = bench.main { out["picture"] = "\(p.stage) \(p.key.film)" }
         if let p = bench.pictureProblem { out["pictureProblem"] = p }
@@ -197,6 +197,8 @@ enum Driver {
         if let p = bench.lastPrint { out["lastPrint"] = p.url.path }
         if let b = bench.batch {
             out["batch"] = "started \(b.started) printed \(b.printed) failed \(b.failures.count) notRun \(b.notRun) finished \(b.finished)"
+            out["skipped"] = b.holds.map { "\($0.count) \($0.reason)" }.joined(separator: "; ")
+            out["unreadableSkipped"] = b.unreadable
         }
         if let d = try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]),
            let s = String(data: d, encoding: .utf8) { Swift.print(s) }
