@@ -381,6 +381,116 @@ final class DarkroomEngineTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: printed.path))
     }
 
+    // MARK: The stack
+
+    /// Each channel's mean difference, signed. Grain and JPEG noise cancel out
+    /// here, and a colour shift does not.
+    func shift(_ a: CGImage, _ b: CGImage) throws -> [Double] {
+        XCTAssertEqual([a.width, a.height], [b.width, b.height])
+        let x = bytes(a), y = bytes(b)
+        XCTAssertEqual(x.count, y.count)
+        var total = [0, 0, 0]
+        for i in stride(from: 0, to: x.count - 2, by: 3) {
+            for c in 0..<3 { total[c] += Int(x[i + c]) - Int(y[i + c]) }
+        }
+        return total.map { Double($0) / Double(x.count / 3) }
+    }
+
+    /// Within one level of 255 on every channel.
+    func assertSamePicture(_ a: CGImage, _ b: CGImage, line: UInt = #line) throws {
+        let values = try shift(a, b)
+        for value in values { XCTAssertEqual(value, 0, accuracy: 1, "\(values)", line: line) }
+    }
+
+    func testAPrintShowsWhatItsFileHolds() async throws {
+        let room = room(cache: 256 << 20)
+        let velvia = try film("velvia")
+        let url = try await room.print(landscape, film: velvia, to: folder(), name: "full.JPG")
+        let shown = try await room.printPicture(url)
+        XCTAssertEqual([shown.width, shown.height], [2592, 1728])
+        // The same film off the same raw, through a JPEG at 92: no colour shift.
+        let render = try await room.render(landscape, film: velvia, quality: .fine)
+        try assertSamePicture(shown, render)
+        let other = try await room.render(landscape, film: film("portra"), quality: .fine)
+        XCTAssertGreaterThan(try shift(shown, other).map(abs).max() ?? 0, 3)
+    }
+
+    func testAHalfPrintIsShownAtItsOwnSize() async throws {
+        let room = room()
+        let url = try await room.print(landscape, film: film("eterna"), to: folder(), name: "half.JPG", half: true)
+        let shown = try await room.printPicture(url, maxPixels: 5184)
+        XCTAssertEqual([shown.width, shown.height], [2592, 1728])
+    }
+
+    func testAPortraitPrintFromThisAppTurnsByItsOwnTag() async throws {
+        let room = room()
+        let url = try await room.print(portrait, film: film("portra"), to: folder(), name: "p.JPG", half: true)
+        // Its own tag: the frame's orientation is not applied a second time.
+        let shown = try await room.printPicture(url, frameOrientation: 6)
+        XCTAssertEqual([shown.width, shown.height], [1728, 2592])
+    }
+
+    func testACameraPrintIsTaggedNormalAndTurnsAsItsFrameDoes() async throws {
+        let room = room()
+        // The bridge writes what the camera writes: stored pixels, Orientation 1.
+        let url = try folder().appendingPathComponent("FLM_4020.JPG")
+        let negative = try XCTUnwrap(sb_negative_open(portrait.path, nil))
+        defer { sb_negative_close(negative) }
+        let loaded = try film("portra")
+        XCTAssertEqual(sb_print(negative, loaded.handle, 2, 88, 1, url.path, nil), 0)
+        XCTAssertEqual(try tiff(url)[kCGImagePropertyTIFFOrientation as String] as? Int, 1)
+
+        let flat = try await room.printPicture(url)
+        XCTAssertEqual([flat.width, flat.height], [2592, 1728])
+        let upright = try await room.printPicture(url, frameOrientation: 6)
+        XCTAssertEqual([upright.width, upright.height], [1728, 2592])
+        let render = try await room.render(portrait, film: loaded, quality: .fine)
+        try assertSamePicture(upright, render)
+    }
+
+    func testAPrintThatIsNotThereIsGoneAndAnEmptyOneToo() async throws {
+        let room = room()
+        let missing = try folder().appendingPathComponent("gone.JPG")
+        do {
+            _ = try await room.printPicture(missing)
+            XCTFail("a missing print was shown")
+        } catch { XCTAssertEqual(error as? DarkroomError, .printGone(missing.path)) }
+        try Data().write(to: missing)
+        do {
+            _ = try await room.printPicture(missing)
+            XCTFail("an empty file was shown")
+        } catch { XCTAssertEqual(error as? DarkroomError, .printGone(missing.path)) }
+    }
+
+    func testAFileThatIsNoPictureIsUnreadable() async throws {
+        let junk = try folder().appendingPathComponent("junk.JPG")
+        try Data("not a picture".utf8).write(to: junk)
+        do {
+            _ = try await room().printPicture(junk)
+            XCTFail("junk was shown")
+        } catch { XCTAssertEqual(error as? DarkroomError, .printUnreadable(junk.path)) }
+    }
+
+    func testAFileReplacedAtItsPathIsTheNewFile() async throws {
+        let room = room(cache: 256 << 20)
+        let out = try folder()
+        let url = try await room.print(landscape, film: film("velvia"), to: out, name: "same.JPG", half: true)
+        let before = try await room.printPicture(url)
+        let other = try await room.print(landscape, film: film("eterna"), to: out, name: "other.JPG", half: true)
+        try FileManager.default.removeItem(at: url)
+        try FileManager.default.moveItem(at: other, to: url)
+        let after = try await room.printPicture(url)
+        XCTAssertGreaterThan(try shift(before, after).map(abs).max() ?? 0, 3)
+    }
+
+    func testAPictureOutlivesItsFile() async throws {
+        let room = room()
+        let url = try await room.print(landscape, film: film("eterna"), to: folder(), name: "held.JPG", half: true)
+        let shown = try await room.printPicture(url)
+        try FileManager.default.removeItem(at: url)
+        XCTAssertEqual(bytes(shown).count, 2592 * 1728 * 3)     // nothing left to read
+    }
+
     func testEmbeddedAtEachScale() throws {
         for (scale, w, h) in [(1, 5184, 3456), (2, 2592, 1728), (4, 1296, 864), (8, 648, 432)] {
             var pixels: UnsafeMutablePointer<UInt8>?

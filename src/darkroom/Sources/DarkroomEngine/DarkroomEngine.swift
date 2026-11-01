@@ -28,6 +28,10 @@ public enum DarkroomError: Error, Equatable {
     case printFailed(String)
     case refusedDestination(String)
     case badName(String)
+    /// The print's file is not there, or is empty, which is not a print.
+    case printGone(String)
+    /// The file is there, and it is not a whole picture.
+    case printUnreadable(String)
 }
 
 /// A film, loaded. A class so that a render still running after its task was
@@ -139,6 +143,27 @@ public final class Darkroom: @unchecked Sendable {
             }
         }
         images.put(key, image, cost: image.bytesPerRow * image.height)
+        try Task.checkCancellation()
+        return image
+    }
+
+    // MARK: The stack
+
+    /// A print as its file holds it, up to the fine render's size, turned the
+    /// way the frame is viewed. `frameOrientation` is the CR2's: the camera
+    /// tags its prints normal whichever way up the frame was shot. A print is
+    /// keyed by a fresh stat, so a file replaced at its path is the new file.
+    /// The bytes are copied out here, so drawing it never reads the volume.
+    public func printPicture(_ url: URL, frameOrientation: Int = 1,
+                             maxPixels: Int = 5184 / RenderQuality.fine.scale) async throws -> CGImage {
+        let image = try await offload(embedded) { [images] _ in
+            guard let stamp = printStamp(url) else { throw DarkroomError.printGone(url.path) }
+            let key = "\(stamp)|\(frameOrientation)|\(maxPixels)"
+            if let hit = images.get(key) { return hit }
+            let image = try printImage(url, frameOrientation: frameOrientation, maxPixels: maxPixels)
+            images.put(key, image, cost: image.bytesPerRow * image.height)
+            return image
+        }
         try Task.checkCancellation()
         return image
     }
@@ -423,6 +448,50 @@ private func embeddedImage(_ url: URL, scale: Int) throws -> CGImage {
     defer { sb_free(pixels) }
     let rgb = Data(bytes: pixels, count: Int(w) * Int(h) * 3)
     return try rotated(rgb, Int(w), Int(h), Int(facts.orientation), url)
+}
+
+/// Nil when the file is not there or is empty.
+private func printStamp(_ url: URL) -> String? {
+    var st = stat()
+    guard stat(url.path, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_size > 0 else { return nil }
+    return "\(url.path)|\(st.st_size)|\(st.st_mtimespec.tv_sec).\(st.st_mtimespec.tv_nsec)"
+}
+
+/// The file's own tag turns it. A file tagged normal turns as its frame does.
+private func printImage(_ url: URL, frameOrientation: Int, maxPixels: Int) throws -> CGImage {
+    let options = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                   kCGImageSourceCreateThumbnailWithTransform: true,
+                   kCGImageSourceShouldCacheImmediately: true,
+                   kCGImageSourceThumbnailMaxPixelSize: maxPixels] as CFDictionary
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let picture = CGImageSourceCreateThumbnailAtIndex(source, 0, options),
+          let space = CGColorSpace(name: CGColorSpace.sRGB)
+    else { throw DarkroomError.printUnreadable(url.path) }
+
+    let w = picture.width, h = picture.height
+    var rgbx = Data(count: w * h * 4)
+    let drawn = rgbx.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) -> Bool in
+        guard let context = CGContext(data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8,
+                                      bytesPerRow: w * 4, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
+        context.draw(picture, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return true
+    }
+    guard drawn else { throw DarkroomError.printUnreadable(url.path) }
+    var rgb = Data(count: w * h * 3)
+    rgb.withUnsafeMutableBytes { (dst: UnsafeMutableRawBufferPointer) in
+        rgbx.withUnsafeBytes { (src: UnsafeRawBufferPointer) in
+            let d = dst.bindMemory(to: UInt8.self), s = src.bindMemory(to: UInt8.self)
+            for i in 0..<(w * h) {
+                d[i * 3] = s[i * 4]
+                d[i * 3 + 1] = s[i * 4 + 1]
+                d[i * 3 + 2] = s[i * 4 + 2]
+            }
+        }
+    }
+    let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+    let own = properties?[kCGImagePropertyOrientation] as? Int ?? 1
+    return try rotated(rgb, w, h, own == 1 ? frameOrientation : 1, url)
 }
 
 /// Stored pixels as the viewer should see them, per EXIF orientation 1..8.
