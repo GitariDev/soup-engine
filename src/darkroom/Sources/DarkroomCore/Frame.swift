@@ -30,7 +30,8 @@ public struct Frame: Sendable, Equatable, Identifiable {
     public let otherwiseFilm: Film?
     private let choiceCan: Film?
 
-    /// The record's copy of a redundant choice is removed here.
+    /// A choice equal to this file's own film does not count here. It stays in
+    /// the record: a copy of the frame with no record may be the one that made it.
     public init(file: FrameFile, rollMatch: RollMatch, record: inout BenchRecord, shelf: FilmShelf) {
         self.file = file
         self.rollMatch = rollMatch
@@ -38,10 +39,7 @@ public struct Frame: Sendable, Equatable, Identifiable {
         let recorded = Self.shotOn(rollMatch, file.cardPrint)
         otherwiseFilm = recorded.flatMap { shelf.film(named: $0.film) }
         var picked = record.choices[file.identity]
-        if let p = picked, let other = otherwiseFilm, Film.key(p) == Film.key(other.name) {
-            record.removeChoice(identity: file.identity)
-            picked = nil
-        }
+        if let p = picked, let other = otherwiseFilm, Film.key(p) == Film.key(other.name) { picked = nil }
         choice = picked
         choiceCan = picked.flatMap { shelf.film(named: $0) }
     }

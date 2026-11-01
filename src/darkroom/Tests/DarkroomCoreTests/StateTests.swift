@@ -88,13 +88,42 @@ final class StateTests: XCTestCase {
         XCTAssertEqual(try r.frame().state, .shotOn)
     }
 
-    func testAStoredChoiceThatTurnsOutRedundantIsRemoved() throws {
+    func testAStoredChoiceThatTurnsOutRedundantDoesNotCountAndStays() throws {
         // Chosen while there was no record; the roll then arrived with the same film.
         let r = try frame(roll: nil)
         r.record.choose(try r.can("PORTRA"), for: try r.frame())
         XCTAssertEqual(r.record.choices.count, 1)
         try r.roll(line((100, 1), (100, 1), film: "portra"))
         XCTAssertEqual(try r.frame().state, .shotOn)
+        XCTAssertNil(try r.frame().choice)
+        XCTAssertEqual(r.record.choices.count, 1)
+    }
+
+    func testAChoiceOnACopyWithNoRecordSurvivesTheCopyWithOne() throws {
+        let r = try frame(roll: "VELVIA")
+        try r.cr2("IMG_0001.CR2", folder: "DCIM/102CANON")
+        let bare = try XCTUnwrap(try r.frames().first { $0.shotOnFilm == nil })
+        r.record.choose(try r.can("VELVIA"), for: bare)
+        for _ in 0..<2 {
+            let frames = try r.frames()
+            XCTAssertEqual(frames.first { $0.id == bare.id }?.choice, "VELVIA")
+            XCTAssertEqual(frames.first { $0.id != bare.id }?.choice, nil)
+            XCTAssertEqual(frames.first { $0.id != bare.id }?.state, .shotOn)
+        }
+        XCTAssertEqual(r.record.choices.count, 1)
+    }
+
+    func testClearingOnTheFramesOwnFilmRemovesARedundantChoice() throws {
+        let r = try frame(roll: nil)
+        r.record.choose(try r.can("PORTRA"), for: try r.frame())
+        try r.roll(line((100, 1), (100, 1), film: "PORTRA"))
+        r.record.choose(try r.can("PORTRA"), for: try r.frame())
+        XCTAssertTrue(r.record.choices.isEmpty)
+
+        try FileManager.default.removeItem(at: r.root.appendingPathComponent("ML/DATA/SOUPROLL.TXT"))
+        r.record.choose(try r.can("PORTRA"), for: try r.frame())
+        try r.roll(line((100, 1), (100, 1), film: "PORTRA"))
+        r.record.choose(nil, for: try r.frame())
         XCTAssertTrue(r.record.choices.isEmpty)
     }
 

@@ -1,2 +1,3 @@
 iter	hypothesis	expected	commit	metric	delta	gates	jury_median	spread	decision	note
 0	baseline: jury of three on commit 105db41	-	105db41	8.64	-	all pass	8.64	0.19	baseline	D9 T9 F8 S9 B8. Judges 8.64, 8.64, 8.45. Scored from driver captures on the fixture
+1	A choice is lost on a duplicate frame because Frame.init removes it for the other copy	the choice survives a reopen; each copy decides for itself	-	-	-	all pass	-	-	keep	Before: CLASSIC CHROME chosen on the copy with no record stayed noRecord and read No record on reopen. After: yourChoice at once and after reopen; the recorded copy stays shotOn. Changed testAStoredChoiceThatTurnsOutRedundantIsRemoved (it encoded the removal), added two tests. Walk gets size 1164 680 as setup

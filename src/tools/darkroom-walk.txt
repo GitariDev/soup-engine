@@ -1,5 +1,6 @@
 # Walks every screen of Enlarger Bench v4 against the fixture card from
 # tools/mkbench.sh. tools/darkroom-walk.sh runs it and checks the result.
+size 1164 680
 wait 800
 dump 1-found
 shot 1-found

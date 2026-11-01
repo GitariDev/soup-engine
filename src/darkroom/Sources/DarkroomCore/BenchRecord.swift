@@ -133,6 +133,4 @@ public struct BenchRecord: Sendable, Equatable {
             choices[frame.identity] = nil
         }
     }
-
-    mutating func removeChoice(identity: String) { choices[identity] = nil }
 }
