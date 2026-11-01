@@ -76,13 +76,13 @@ redeveloped on another film. Two roll entries that match one frame with differen
 films are treated as no record, because a guess is worse than a gap.
 
 A recorded film that is not on the shelf shows its name and holds Print until a
-can is chosen.
+can is chosen. The state stays Shot on; the strip says NO CAN.
 
 ### Open questions from the report
 
 | Question | Decision |
 |:--|:--|
-| Name clash | never overwrite: `IMG_3990_VELVIA.JPG`, then `-2`, `-3`. The file is moved into place with an exclusive rename, so the check cannot race |
+| Name clash | never overwrite: `IMG_3990_VELVIA.JPG`, then `-2`, `-3`. The file is moved into place with an exclusive rename, so the check cannot race. A batch asks for plain names and that rename alone resolves a clash |
 | Batch progress | "Printing 3 of 16" in the tray, a Stop that finishes the current frame, and a result naming the folder and what was printed, skipped and failed |
 | Where a batch prints | the destination is printed on the batch button's line, always |
 | Does a printed frame show its shot-on film? | yes, "Printed on Eterna" and "Shot on Portra", and Space compares against the shot-on film |
@@ -97,17 +97,24 @@ can is chosen.
 - **Space on a frame with no record.** Shows the straight raw, labelled.
 - **Save folder.** `~/Pictures/Soup Prints`, created on first print, then remembered.
 - **Refused destinations.** Any folder on a card, or inside a `DCIM` tree. This
-  holds for G5 even when the user picks such a folder by hand.
+  holds for G5 even when the user picks such a folder by hand. A folder inside the
+  home folder is never a card, but a `DCIM` tree there stays refused. The app and
+  `darkroomctl` share one rule, `Destination.cardReason`.
 - **The bench record.** Choices, prints and the save folder are kept in
   `~/Library/Application Support/Soup Darkroom/bench.json`. Nothing goes on the card.
+  Only the user removes a choice: one equal to a file's own film does not count for
+  that file, and stays in the record for a copy with no film of its own.
 - **Frame identity (R1).** `<stem>|<CR2 date and time>|<bytes>`, so a reused number
   on a later frame is a different frame, and a copied folder keeps its record.
 - **Films.** The shelf is ML/FILM, then films the user added (kept in Application
   Support), then the bundled stocks so a folder with no card can still develop. A
-  name appears once, and the card's copy wins.
+  name appears once, and the card's copy wins. It reads in the camera's FILMS order,
+  with films the camera does not know after.
 - **Sizes.** Full 5184x3456 JPEG 92 by default, Half on request.
 - **Previews.** The embedded JPEG only as a placeholder, marked as developing. The
-  picture the user judges is always the film on the sensor data.
+  picture the user judges is always the film on the sensor data. A can pick keeps
+  the developed picture up until the new film's quick render arrives, without the
+  YOUR CHOICE label, and with a DEVELOPING chip if that takes more than a moment.
 - **Licence.** GPL stays. The About box and README keep the M-Film credit. No
   account, key, limit or network call.
 
