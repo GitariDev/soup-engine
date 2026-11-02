@@ -511,6 +511,9 @@ final class Bench: ObservableObject {
             loadFilms()
         }
         let next = Frame.assemble(files, roll: roll, record: &record, shelf: shelf)
+        // A file that changed is judged afresh.
+        let same = Set(next.map { $0.id + "|" + $0.identity })
+        broken = broken.filter { id in frames.contains { $0.id == id && same.contains(id + "|" + $0.identity) } }
         // A print on the enlarger may have been changed where it stands.
         if shownPrint != nil { workKeys = [] }
         if next != frames {
@@ -833,15 +836,19 @@ final class Bench: ObservableObject {
         filmLate = false
         pictureProblem = nil
         // A print is its own file, and needs nothing from the CR2.
-        guard print != nil || (frame.isReadable && !broken.contains(frame.id)) else {
+        guard frame.isReadable || print != nil else {
             showUnreadable(Self.unreadableLine)
             return
         }
 
+        // A frame that failed gets another try, under its reason: no stand-in
+        // promises a picture that may not come.
+        if print == nil, broken.contains(frame.id) {
+            showUnreadable(Self.unreadableLine)
+        } else if let held = cache[mainKey] {
+            main = held
         // G1 holds: only a developed picture of this frame stays up, and only
         // until its film arrives. The label and the chip say it is the old one.
-        if let held = cache[mainKey] {
-            main = held
         } else if let old = main, old.isDeveloped, old.key.frame == mainKey.frame {
             lateTask = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(200))
@@ -887,7 +894,7 @@ final class Bench: ObservableObject {
                 // A step along the stack moves on before this is up.
                 if sideKey.flatMap({ cache[$0] }) == nil { try await Task.sleep(for: .milliseconds(150)) }
             } else {
-                if (main?.stage ?? .thumbnail) < .placeholder {
+                if (main?.stage ?? .thumbnail) < .placeholder, !broken.contains(frame.id) {
                     let image = try await darkroom.placeholder(frame.file.url)
                     try Task.checkCancellation()
                     let embedded = Picture(key: PictureKey(embedded: frame), image: image, stage: .placeholder)
@@ -899,6 +906,10 @@ final class Bench: ObservableObject {
                 // A held arrow key moves on before this is up, so a skim starts no decode.
                 if cache[mainKey] == nil { try await Task.sleep(for: .milliseconds(30)) }
                 try await render(frame, film, mainKey, .quick) { self.main = $0 }
+                if broken.remove(frame.id) != nil {
+                    pictureProblem = nil
+                    comparison = side
+                }
             }
             if let side, let sideKey {
                 try await render(frame, side.film, sideKey, .quick) { self.compare = $0 }
