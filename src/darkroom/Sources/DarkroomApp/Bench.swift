@@ -379,6 +379,8 @@ final class Bench: ObservableObject {
             frames += Frame.assemble(batch, roll: roll, record: &record, shelf: shelf)
             scan?.read = files.count
             derive()
+            // One file was asked for, so it is the one to show.
+            if isLoneFile, selectedID == nil { select(frames.first?.id) }
         case .finished:
             scan = nil
         }
@@ -1268,9 +1270,18 @@ final class Bench: ObservableObject {
         return model.replacingOccurrences(of: "Canon EOS ", with: "")
     }
 
+    /// One CR2 was opened on its own, not the folder it sits in.
+    private var isLoneFile: Bool { openedSource?.onlyFile != nil }
+
+    var openLabel: String { isLoneFile ? "Open a folder..." : "Open another folder..." }
+
     private var filmsCount: String { "\(films.count) \(films.count == 1 ? "film" : "films")" }
 
     var emptyTitle: String {
+        if case .folder = source, isLoneFile {
+            if scan != nil { return "Reading the frame." }
+            return frames.isEmpty ? "No CR2s here." : "Frame open. \(filmsCount)."
+        }
         let isCard: Bool
         switch source {
         case .none:

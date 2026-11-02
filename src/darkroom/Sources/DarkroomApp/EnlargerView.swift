@@ -39,7 +39,7 @@ struct EnlargerView: View {
             if let sub = bench.emptySubtitle {
                 Text(sub).font(Theme.font(13)).foregroundColor(Theme.dim)
             }
-            Button("Open another folder...") {
+            Button(bench.openLabel) {
                 if let url = Panels.pickFolderOrFile() { bench.open(url) }
             }
             .buttonStyle(QuietButtonStyle())
