@@ -22,6 +22,7 @@ final class PrintPlanTests: XCTestCase {
                        ["IMG_0001_VELVIA.JPG", "IMG_0002_VELVIA.JPG", "IMG_0003_VELVIA.JPG"])
         XCTAssertEqual(plan.waiting.map(\.name), ["IMG_0004.CR2", "IMG_0005.CR2"])
         XCTAssertEqual(plan.summary, "Print 3 of 5 to ~/Pictures/Soup Prints, 2 wait for a film")
+        XCTAssertEqual(plan.summary(verb: "Redevelop"), "Redevelop 3 of 5 to ~/Pictures/Soup Prints, 2 wait for a film")
     }
 
     func testSummaryWordings() throws {

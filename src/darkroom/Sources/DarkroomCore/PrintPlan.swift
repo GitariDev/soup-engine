@@ -156,8 +156,11 @@ public struct PrintPlan: Sendable, Equatable {
     }
 
     /// "Print 16 of 28 to ~/Pictures/Soup Prints, 12 wait for a film".
-    public var summary: String {
-        var s = "Print \(items.count) of \(total) to \(place)"
+    public var summary: String { summary(verb: "Print") }
+
+    /// The same, for a batch that is called something else.
+    public func summary(verb: String) -> String {
+        var s = "\(verb) \(items.count) of \(total) to \(place)"
         if !waiting.isEmpty { s += ", \(waiting.count) \(waiting.count == 1 ? "waits" : "wait") for a film" }
         if !unreadable.isEmpty { s += ", \(unreadable.count) cannot be read" }
         return s

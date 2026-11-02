@@ -1244,7 +1244,7 @@ final class Bench: ObservableObject {
 
     func planLine(_ plan: PrintPlan) -> String {
         if plan.waiting.isEmpty && plan.unreadable.isEmpty { return "to \(place(plan.destination))" }
-        return batchVerb(plan) + plan.summary.dropFirst("Print".count)
+        return plan.summary(verb: batchVerb(plan))
     }
 
     /// Asked before a redevelop writes. The print step keeps every name free.
