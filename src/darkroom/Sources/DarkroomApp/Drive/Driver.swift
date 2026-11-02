@@ -332,7 +332,7 @@ enum DriverAnchors {
 
     /// The chips on the picture, by side: where each is, and the width its
     /// whole label would take, so a dump shows one that is cut short.
-    static var chips: [String: (text: String, rect: CGRect)] = [:]
+    static var chips: [String: (text: String, rect: CGRect, owner: UUID)] = [:]
 
     static var chipDump: [String: Any] {
         chips.mapValues { chip in
@@ -343,15 +343,31 @@ enum DriverAnchors {
     }
 }
 
+/// Only the chip that wrote an entry removes it: going from one branch of the
+/// picture to another, the old chip disappears after the new one has appeared.
+private struct ChipAnchor: ViewModifier {
+    let side: String
+    let text: String
+    @State private var owner = UUID()
+
+    private func note(_ text: String, _ rect: CGRect) {
+        DriverAnchors.chips[side] = (text, rect, owner)
+    }
+
+    func body(content: Content) -> some View {
+        content.background(GeometryReader { geo in
+            Color.clear
+                .onAppear { note(text, geo.frame(in: .global)) }
+                .onChange(of: geo.frame(in: .global)) { _, rect in note(text, rect) }
+                .onChange(of: text) { _, new in note(new, geo.frame(in: .global)) }
+                .onDisappear { if DriverAnchors.chips[side]?.owner == owner { DriverAnchors.chips[side] = nil } }
+        })
+    }
+}
+
 extension View {
     /// Keeps `DriverAnchors.chips` current for one chip on the picture.
     func chipAnchor(_ side: String, _ text: String) -> some View {
-        background(GeometryReader { geo in
-            Color.clear
-                .onAppear { DriverAnchors.chips[side] = (text, geo.frame(in: .global)) }
-                .onChange(of: geo.frame(in: .global)) { _, rect in DriverAnchors.chips[side] = (text, rect) }
-                .onChange(of: text) { _, new in DriverAnchors.chips[side] = (new, geo.frame(in: .global)) }
-                .onDisappear { DriverAnchors.chips[side] = nil }
-        })
+        modifier(ChipAnchor(side: side, text: text))
     }
 }
