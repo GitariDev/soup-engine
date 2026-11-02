@@ -822,6 +822,11 @@ final class Bench: ObservableObject {
         lateTask?.cancel()
         filmLate = false
         pictureProblem = nil
+        // A print is its own file, and needs nothing from the CR2.
+        guard print != nil || (frame.isReadable && !broken.contains(frame.id)) else {
+            showUnreadable(Self.reason(DarkroomError.unreadable(frame.name)))
+            return
+        }
 
         // G1 holds: only a developed picture of this frame stays up, and only
         // until its film arrives. The label and the chip say it is the old one.
@@ -837,15 +842,20 @@ final class Bench: ObservableObject {
             main = bestStandIn(frame, key: mainKey)
         }
         compare = sideKey.flatMap { cache[$0] }
-        guard frame.isReadable || print != nil else {
-            pictureProblem = "This CR2 cannot be read."
-            return
-        }
         let others = films
         work = Task { [weak self] in
             await self?.work(on: frame, print: print, film: film, side: side, mainKey: mainKey, sideKey: sideKey,
                              others: others)
         }
+    }
+
+    /// No stand-in stays up: with nothing left to arrive, DEVELOPING would be
+    /// a promise, and there is nothing to compare.
+    private func showUnreadable(_ why: String) {
+        main = nil
+        compare = nil
+        comparison = nil
+        pictureProblem = why
     }
 
     private func bestStandIn(_ frame: Frame, key: PictureKey) -> Picture? {
@@ -896,9 +906,8 @@ final class Bench: ObservableObject {
             return
         } catch {
             guard !Task.isCancelled, (main?.stage ?? .thumbnail) < .quick || showsOldFilm else { return }
-            if showsOldFilm { main = nil }
             filmLate = false
-            pictureProblem = Self.reason(error)
+            showUnreadable(Self.reason(error))
             if cardGone == nil, FileManager.default.fileExists(atPath: frame.file.url.path) {
                 broken.insert(frame.id)
             }
