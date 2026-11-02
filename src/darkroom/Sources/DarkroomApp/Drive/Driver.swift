@@ -255,6 +255,7 @@ enum Driver {
             "looking": bench.looking, "active": NSApp.isActive, "key": window?.isKeyWindow ?? false,
             "imageRect": DriverAnchors.imageRect.map { "\($0)" } ?? "",
             "printRect": DriverAnchors.printRect.map { "\($0)" } ?? "",
+            "chips": DriverAnchors.chipDump,
             "canPrint": bench.canPrintCurrent, "saveFolder": bench.saveFolder.path,
         ]
         if let f = bench.current {
@@ -321,5 +322,30 @@ enum DriverAnchors {
                     .onChange(of: geo.frame(in: .global)) { _, rect in marks[name] = rect }
             }
         }
+    }
+
+    /// The chips on the picture, by side: where each is, and the width its
+    /// whole label would take, so a dump shows one that is cut short.
+    static var chips: [String: (text: String, rect: CGRect)] = [:]
+
+    static var chipDump: [String: Any] {
+        chips.mapValues { chip in
+            let r = chip.rect
+            return ["text": chip.text, "x": r.minX, "y": r.minY, "w": r.width, "h": r.height,
+                    "whole": NSHostingView(rootView: Chip(text: chip.text)).fittingSize.width]
+        }
+    }
+}
+
+extension View {
+    /// Keeps `DriverAnchors.chips` current for one chip on the picture.
+    func chipAnchor(_ side: String, _ text: String) -> some View {
+        background(GeometryReader { geo in
+            Color.clear
+                .onAppear { DriverAnchors.chips[side] = (text, geo.frame(in: .global)) }
+                .onChange(of: geo.frame(in: .global)) { _, rect in DriverAnchors.chips[side] = (text, rect) }
+                .onChange(of: text) { _, new in DriverAnchors.chips[side] = (new, geo.frame(in: .global)) }
+                .onDisappear { DriverAnchors.chips[side] = nil }
+        })
     }
 }

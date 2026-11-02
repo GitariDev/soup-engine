@@ -161,6 +161,15 @@ private struct PictureStage: View {
     private var other: Picture? { bench.comparison?.wipes == true ? bench.compare : nil }
 
     private var wipeLine: Double { bench.shownPrint == nil ? bench.wipe : bench.printWipe }
+    private var wipes: Bool { other != nil && picture.isDeveloped }
+    /// A label is on the picture, so DEVELOPING has to share its line.
+    private var labelled: Bool { (bench.holdShotOn && bench.spacePicture != nil) || (!bench.holdShotOn && wipes) }
+    private var developing: (text: String, color: Color) { ("DEVELOPING", Theme.accent) }
+
+    private var wipeRight: (text: String, color: Color)? {
+        if bench.showsOldFilm { return bench.filmLate ? developing : nil }
+        return (bench.comparison?.developingLabel ?? "", bench.shownPrint == nil ? Theme.blue : Theme.green)
+    }
 
     private var originalLabel: String {
         let label = bench.comparison?.label ?? "STRAIGHT RAW"
@@ -173,7 +182,7 @@ private struct PictureStage: View {
             Color.clear
             stage
                 .overlay(alignment: .top) {
-                    if bench.filmLate { Chip(text: "DEVELOPING", color: Theme.accent, backed: true).padding(8) }
+                    if bench.filmLate, !labelled { Chip(text: "DEVELOPING", color: Theme.accent, backed: true).padding(8) }
                 }
                 .aspectRatio(aspect, contentMode: .fit)
                 .background(GeometryReader { geo in
@@ -189,24 +198,21 @@ private struct PictureStage: View {
 
     @ViewBuilder private var stage: some View {
         if bench.holdShotOn, let original = bench.spacePicture {
-            marked(original)
-                .overlay(alignment: .topLeading) {
-                    Chip(text: originalLabel, color: Theme.accent, backed: true)
-                        .padding(8)
+            drained(original)
+                .overlay(alignment: .top) {
+                    chipLines(originalLabel, right: !original.isDeveloped || bench.filmLate ? developing : nil)
                 }
         } else if bench.holdShotOn, bench.comparison?.wipes == true {
             // The original is not here yet, and this picture is not it.
             marked(picture)
                 .overlay(alignment: .top) { Chip(text: "DEVELOPING", color: Theme.accent, backed: true).padding(8) }
-        } else if let other, picture.isDeveloped {
+        } else if let other, wipes {
             wipe(other)
+        } else if bench.onOriginal, !bench.showsOldFilm {
+            drained(picture)
+                .overlay(alignment: .top) { chipLines(originalLabel, right: picture.isDeveloped ? nil : developing) }
         } else {
             marked(picture)
-                .overlay(alignment: .topLeading) {
-                    if bench.onOriginal, !bench.showsOldFilm {
-                        Chip(text: originalLabel, color: Theme.accent, backed: true).padding(8)
-                    }
-                }
                 .overlay(alignment: .topTrailing) {
                     if bench.shownPrint != nil, !bench.showsOldFilm {
                         Chip(text: bench.comparison?.developingLabel ?? "", color: Theme.green, backed: true).padding(8)
@@ -220,36 +226,52 @@ private struct PictureStage: View {
         if picture.isDeveloped {
             image(picture)
         } else {
-            image(picture)
-                .saturation(0.3)
-                .opacity(0.72)
+            drained(picture)
                 .overlay(alignment: .top) {
                     Chip(text: "DEVELOPING", color: Theme.accent, backed: true).padding(8)
                 }
         }
     }
 
+    @ViewBuilder private func drained(_ picture: Picture) -> some View {
+        if picture.isDeveloped {
+            image(picture)
+        } else {
+            image(picture).saturation(0.3).opacity(0.72)
+        }
+    }
+
+    /// Each stays over its own side. A picture too narrow for both on one line,
+    /// a portrait frame, takes them on two, so neither covers the other's name.
+    private func chipLines(_ left: String?, right: (text: String, color: Color)?) -> some View {
+        let leftChip = left.map { Chip(text: $0, color: Theme.accent, backed: true).chipAnchor("left", $0) }
+        let rightChip = right.map { Chip(text: $0.text, color: $0.color, backed: true).chipAnchor("right", $0.text) }
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                leftChip
+                Spacer(minLength: 0)
+                rightChip
+            }
+            VStack(spacing: 4) {
+                leftChip.frame(maxWidth: .infinity, alignment: .leading)
+                rightChip.frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .padding(8)
+    }
+
     private func wipe(_ other: Picture) -> some View {
         GeometryReader { geo in
             let x = geo.size.width * wipeLine
-            // Two names side by side need more width than a portrait frame has.
-            let drop: CGFloat = wipeLine > 0 && geo.size.width < 440 ? 30 : 0
             ZStack(alignment: .topLeading) {
                 image(picture)
                 image(other).mask(alignment: .leading) { Rectangle().frame(width: x) }
-                // A print starts whole: no line yet, and nothing of the original to name.
+                // A print starts whole: no line yet.
                 if wipeLine > 0 {
                     Rectangle().fill(Theme.accent).frame(width: 2).offset(x: x - 1)
-                    Chip(text: bench.comparison?.label ?? "", color: Theme.accent, backed: true)
-                        .padding(8)
                 }
-                if !bench.showsOldFilm {
-                    Chip(text: bench.comparison?.developingLabel ?? "",
-                         color: bench.shownPrint == nil ? Theme.blue : Theme.green, backed: true)
-                        .padding(8)
-                        .padding(.top, drop)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
+                // A print starts whole: nothing of the original to name.
+                chipLines(wipeLine > 0 ? bench.comparison?.label ?? "" : nil, right: wipeRight)
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in
