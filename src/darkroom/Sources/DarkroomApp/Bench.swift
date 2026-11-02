@@ -834,7 +834,7 @@ final class Bench: ObservableObject {
         pictureProblem = nil
         // A print is its own file, and needs nothing from the CR2.
         guard print != nil || (frame.isReadable && !broken.contains(frame.id)) else {
-            showUnreadable(Self.reason(DarkroomError.unreadable(frame.name)))
+            showUnreadable(Self.unreadableLine)
             return
         }
 
@@ -917,9 +917,13 @@ final class Bench: ObservableObject {
         } catch {
             guard !Task.isCancelled, (main?.stage ?? .thumbnail) < .quick || showsOldFilm else { return }
             filmLate = false
-            showUnreadable(Self.reason(error))
-            if cardGone == nil, FileManager.default.fileExists(atPath: frame.file.url.path) {
-                broken.insert(frame.id)
+            // The file is there, so the card is not the reason.
+            let present = cardGone == nil && FileManager.default.fileExists(atPath: frame.file.url.path)
+            if present { broken.insert(frame.id) }
+            if present, case DarkroomError.unreadable = error {
+                showUnreadable(Self.unreadableLine)
+            } else {
+                showUnreadable(Self.reason(error))
             }
         }
     }
@@ -1029,7 +1033,7 @@ final class Bench: ObservableObject {
     func isUnreadable(_ frame: Frame) -> Bool { !frame.isReadable || broken.contains(frame.id) }
 
     /// `Frame.printHold`, with what only the engine has found out.
-    func hold(_ frame: Frame) -> String? { broken.contains(frame.id) ? "This CR2 cannot be read." : frame.printHold }
+    func hold(_ frame: Frame) -> String? { broken.contains(frame.id) ? Self.unreadableLine : frame.printHold }
 
     var canPrintCurrent: Bool {
         guard let frame = current, !isUnreadable(frame) else { return false }
@@ -1195,6 +1199,8 @@ final class Bench: ObservableObject {
 
     func showInFinder(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     func showFolder(_ url: URL) { NSWorkspace.shared.open(url) }
+
+    private static let unreadableLine = "This CR2 cannot be read."
 
     private static func reason(_ error: Error) -> String {
         switch error {
