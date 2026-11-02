@@ -153,6 +153,10 @@ final class KeyMonitor {
             guard plain, !typing, event.type == .keyDown else { return false }
             bench.stepStack(by: event.keyCode == 33 ? -1 : 1)
             return true
+        case 36, 76, 53:    // Return, Enter and Escape answer the Redevelop question
+            guard plain, !typing, event.type == .keyDown, bench.askedBatch != nil else { return false }
+            if event.keyCode == 53 { bench.cancelBatch() } else { bench.confirmBatch() }
+            return true
         default:
             return false
         }

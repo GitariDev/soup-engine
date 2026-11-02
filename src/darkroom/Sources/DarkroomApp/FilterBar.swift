@@ -66,10 +66,12 @@ struct FilterBar: View {
         HStack(spacing: 10) {
             line(bench.askLine(plan))
             Button("Cancel") { bench.cancelBatch() }
+                .help("Escape")
                 .buttonStyle(.plain)
                 .font(Theme.font(12, .bold)).foregroundColor(Theme.text)
                 .fixedSize()
             Button("Redevelop \(plan.items.count)") { bench.confirmBatch() }
+                .help("Return")
                 .buttonStyle(PrimaryButtonStyle(compact: true))
                 .fixedSize()
                 .disabled(bench.batchRunning || bench.saveProblem != nil)

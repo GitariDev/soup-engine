@@ -10,7 +10,7 @@ import SwiftUI
 ///
 ///     open <path>                       filter <all|shotOn|printed|yourChoice|noRecord|notDeveloped>
 ///     select <name>                     can <film|none>
-///     key <left|right|up|down|[|]>      space <down|up>
+///     key <left|right|up|down|[|]|return|escape>   space <down|up>
 ///     mouse <x> <y>                     drag <x0> <y0> <x1> <y1>      (window points, top left)
 ///     image-drag <from 0..1> <to 0..1>  size <w> <h>
 ///     print | batch | stop              folder <path>   half <on|off>   name <text>
@@ -66,7 +66,7 @@ enum Driver {
             else if let f = bench.films.first(where: { Film.key($0.name) == Film.key(rest) }) { bench.choose(film: f) }
             else { complain(verb, rest) }
         case "key":
-            let code: [String: UInt16] = ["left": 123, "right": 124, "down": 125, "up": 126, "[": 33, "]": 30]
+            let code: [String: UInt16] = ["left": 123, "right": 124, "down": 125, "up": 126, "[": 33, "]": 30, "return": 36, "escape": 53]
             if let k = code[rest] { post(.keyDown, k); post(.keyUp, k) } else { complain(verb, rest) }
         case "space": post(rest == "up" ? .keyUp : .keyDown, 49, repeating: rest == "repeat")
         case "mouse" where numbers.count == 2: await click(CGPoint(x: numbers[0], y: numbers[1]))
