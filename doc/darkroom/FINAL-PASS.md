@@ -45,6 +45,8 @@ These could not be checked here, so check them first.
 - Click the Velvia can. The picture changes at once, a wipe appears, and the tray
   says `YOUR CHOICE · VELVIA`.
 - Hold Space: the Eterna picture. Let go: back. Drag the line across.
+- Drag the line to the far right, then click another can: the line comes back to the
+  middle, and YOUR CHOICE names the new can.
 - Press up and down for films, left and right for frames.
 - Type in the Name field, including a space. It must type and not trigger the compare.
 - Cmd-O opens a picker for any folder or a single CR2.
@@ -55,6 +57,9 @@ These could not be checked here, so check them first.
 - A green line names the file. Show in Finder finds it.
 - Open it: 5184x3456, on Velvia. The card is unchanged.
 - Print it again: `-2`, nothing overwritten.
+- On the Printed tab, the button says Redevelop. Click it: a question replaces it and
+  nothing is written. Press Escape: it goes. Click again and press Return: each frame
+  gets a new file, and the prints already there stay.
 - In Save to, choose a folder on the card. It must refuse and say why.
 
 To check the card afterwards, this must list only `soupeng.mo` and `SOUPUI.BIN`,

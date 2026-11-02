@@ -76,19 +76,20 @@ agree to a mean of 0.27, so what the app shows is what prints. The stock is unch
 
 From the juries, not fixed, because the budget was spent. Worst first.
 
-1. Fixed with the stack: on a narrow picture the second chip drops below the first.
-2. A wipe left at the far right hides film changes, and YOUR CHOICE still shows.
-3. A batch on the Printed tab writes `-2` copies at once with no confirmation, and
-   its button says Print where the tray says Redevelop.
+1. Fixed in `acda9fd`: on a narrow picture the second chip drops below the first.
+2. Fixed in `878f008`: a wipe left at an end comes back for a new film or frame.
+3. Fixed in `92def2d`, `086c95f` and `4898b02`: a batch on the Printed tab says
+   Redevelop and asks first, and Return and Escape answer it.
 4. No Record has no way to put one film on many frames.
 5. A shelf click can land on the wrong can: the shelf recentres under the pointer.
-6. A broken CR2 keeps its placeholder and DEVELOPING chip.
+6. Fixed in `010a101`, `a9c12c2`, `2268e41` and `0e397b8`: a broken CR2 says so with
+   no stand-in, and is tried again on reselect or when its file changes.
 7. A corrupt bench record is set aside safely, but the notice is cleared before it shows.
 8. A film the parser rejects is dropped with no word on the shelf.
 9. Fixed with the stack for a fresh print, which lands on the file and its chip. A
    can picked again after it is printed still says YOUR CHOICE.
 10. Two frames with one number in two folders cannot be told apart on the strip.
-11. A lone CR2 is not selected on opening and is called a folder.
+11. Fixed in `943cbc1`: a lone CR2 comes up selected, and is called a frame.
 12. A folder with no roll file does not say why every frame has no record.
 13. The arrow keys are not shown anywhere. The camera's key pills are not in the app.
 14. Camera: a film change with a range pending writes the line during a develop. It
