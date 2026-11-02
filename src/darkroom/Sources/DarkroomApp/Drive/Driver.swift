@@ -295,6 +295,7 @@ enum Driver {
         out["inHand"] = bench.showsFilmInHand
         out["spaceShows"] = bench.spacePicture?.key.film ?? ""
         if let p = bench.pictureProblem { out["pictureProblem"] = p }
+        out["wipes"] = bench.comparison?.wipes ?? false
         if let p = bench.printError { out["printError"] = p }
         if let p = bench.saveProblem { out["saveProblem"] = p }
         if let p = bench.notice { out["notice"] = p }

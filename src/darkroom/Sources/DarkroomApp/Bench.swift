@@ -828,8 +828,12 @@ final class Bench: ObservableObject {
         let side = compared(with: frame)
         let sideKey = side.flatMap { $0.wipes ? PictureKey(frame, film: $0.film) : nil }
         let keys = [mainKey, sideKey].compactMap { $0 }
+        guard keys != workKeys else {
+            // A frame showing its reason has nothing to compare.
+            if pictureProblem == nil { comparison = side }
+            return
+        }
         comparison = side
-        guard keys != workKeys else { return }
         workKeys = keys
         work?.cancel()
         lateTask?.cancel()
