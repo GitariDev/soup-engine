@@ -600,6 +600,7 @@ final class Bench: ObservableObject {
         selectedID = id
         nameDraft = nil
         half = false
+        centreLineAtAnEnd()
         printError = nil
         printWipe = 0
         derive()
@@ -636,6 +637,7 @@ final class Bench: ObservableObject {
     func choose(film: Film?) {
         guard let frame = current else { return }
         record.choose(film, for: frame)
+        centreLineAtAnEnd()
         nameDraft = nil
         lastPrint = nil
         printError = nil
@@ -792,6 +794,12 @@ final class Bench: ObservableObject {
 
     /// The enlarger still shows the film it had before this one was picked.
     var showsOldFilm: Bool { main.map { $0.key != workKeys.first } ?? false }
+
+    /// A line at an end shows one side only, so what just changed could be the
+    /// side it hides. Anywhere else the user put it, it stays.
+    private func centreLineAtAnEnd() {
+        if wipe <= 0 || wipe >= 1 { wipe = 0.5 }
+    }
 
     /// Puts the best picture already held on the bench at once, then works up
     /// through the stages. Whatever was running for another key is cancelled.

@@ -168,6 +168,8 @@ private struct PictureStage: View {
 
     private var wipeRight: (text: String, color: Color)? {
         if bench.showsOldFilm { return bench.filmLate ? developing : nil }
+        // The enlarger's own side has gone behind the line: no chip names it.
+        if wipeLine >= 1 { return nil }
         return (bench.comparison?.developingLabel ?? "", bench.shownPrint == nil ? Theme.blue : Theme.green)
     }
 
@@ -176,6 +178,9 @@ private struct PictureStage: View {
         // The bar says so too, and a portrait picture has no width to spare.
         return bench.stack.isEmpty || aspect < 1 ? label : "ORIGINAL · \(label)"
     }
+
+    /// The compare side has none of the picture at the far left.
+    private var wipeLeft: String? { wipeLine <= 0 ? nil : bench.comparison?.label ?? "" }
 
     var body: some View {
         ZStack {
@@ -253,7 +258,7 @@ private struct PictureStage: View {
                 rightChip
             }
             VStack(spacing: 4) {
-                leftChip.frame(maxWidth: .infinity, alignment: .leading)
+                leftChip?.frame(maxWidth: .infinity, alignment: .leading)
                 rightChip.frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
@@ -267,11 +272,10 @@ private struct PictureStage: View {
                 image(picture)
                 image(other).mask(alignment: .leading) { Rectangle().frame(width: x) }
                 // A print starts whole: no line yet.
-                if wipeLine > 0 {
+                if bench.shownPrint == nil || wipeLine > 0 {
                     Rectangle().fill(Theme.accent).frame(width: 2).offset(x: x - 1)
                 }
-                // A print starts whole: nothing of the original to name.
-                chipLines(wipeLine > 0 ? bench.comparison?.label ?? "" : nil, right: wipeRight)
+                chipLines(wipeLeft, right: wipeRight)
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in
