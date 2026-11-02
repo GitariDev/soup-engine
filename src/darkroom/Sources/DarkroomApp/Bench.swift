@@ -179,6 +179,8 @@ final class Bench: ObservableObject {
     @Published private(set) var printError: String?
     @Published private(set) var lastPrint: (frame: String, url: URL)?
     @Published private(set) var batch: BatchRun?
+    /// The frames a redevelop is waiting on a yes for.
+    @Published private(set) var askedBatch: [String]?
 
     /// Says what just went wrong. Nothing to dismiss: the next action replaces it.
     @Published private(set) var notice: String?
@@ -531,6 +533,8 @@ final class Bench: ObservableObject {
         stripVersion += 1
         current = selectedID.flatMap { id in visible.first { $0.id == id } }
         plan = filter == .all ? nil : PrintPlan(frames: filter.apply(to: frames), destination: saveFolder)
+        // A yes holds for the frames it was asked about, and no others.
+        if askedBatch != plan?.items.map(\.frame.id) { askedBatch = nil }
         settleBatch()
     }
 
@@ -547,6 +551,7 @@ final class Bench: ObservableObject {
 
     func setFilter(_ filter: Filter) {
         self.filter = filter
+        askedBatch = nil
         lastPrint = nil
         if batch?.finished == true { batch = nil }
         let wanted = selectedID ?? heldID
@@ -1077,6 +1082,23 @@ final class Bench: ObservableObject {
             notice = "Nothing here can print yet."
             return
         }
+        if redevelops(plan) {
+            askedBatch = plan.items.map(\.frame.id)
+        } else {
+            start(plan)
+        }
+    }
+
+    /// The yes to `printBatch` on frames already printed.
+    func confirmBatch() {
+        guard !batchRunning, let plan, askedBatch == plan.items.map(\.frame.id) else { return }
+        askedBatch = nil
+        start(plan)
+    }
+
+    func cancelBatch() { askedBatch = nil }
+
+    private func start(_ plan: PrintPlan) {
         guard let folder = readyFolder() else {
             notice = saveProblem
             return
@@ -1174,8 +1196,25 @@ final class Bench: ObservableObject {
         return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
     }
 
+    /// Printed frames already have their prints, so this makes more files.
+    func redevelops(_ plan: PrintPlan) -> Bool { plan.items.contains { $0.frame.state == .printed } }
+
+    private func batchVerb(_ plan: PrintPlan) -> String { redevelops(plan) ? "Redevelop" : "Print" }
+
+    func batchTitle(_ plan: PrintPlan) -> String {
+        let n = plan.items.count
+        return "\(batchVerb(plan)) \(n == 1 ? "this 1 on its film" : "these \(n) on their films")"
+    }
+
     func planLine(_ plan: PrintPlan) -> String {
-        plan.waiting.isEmpty && plan.unreadable.isEmpty ? "to \(place(plan.destination))" : plan.summary
+        if plan.waiting.isEmpty && plan.unreadable.isEmpty { return "to \(place(plan.destination))" }
+        return batchVerb(plan) + plan.summary.dropFirst("Print".count)
+    }
+
+    /// Asked before a redevelop writes. The print step keeps every name free.
+    func askLine(_ plan: PrintPlan) -> String {
+        let n = plan.items.count
+        return "\(n) new \(n == 1 ? "file" : "files") in \(place(plan.destination)). The prints already there stay."
     }
 
     /// Stands until the bench moves on to another card or folder.

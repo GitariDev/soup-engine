@@ -36,22 +36,43 @@ struct FilterBar: View {
 
     @ViewBuilder private var trailing: some View {
         if let plan = bench.plan, !plan.items.isEmpty {
-            HStack(spacing: 10) {
-                Text(bench.planLine(plan))
-                    .font(Theme.font(10)).foregroundColor(Theme.dim)
-                    .multilineTextAlignment(.trailing).lineLimit(2)
-                    .minimumScaleFactor(0.8)
-                    .frame(maxWidth: 240, alignment: .trailing)
-                    .layoutPriority(1)
-                Button(plan.items.count == 1 ? "Print this 1 on its film" : "Print these \(plan.items.count) on their films") {
-                    bench.printBatch()
-                }
-                    .buttonStyle(PrimaryButtonStyle(compact: true))
-                    .fixedSize()
-                    .disabled(bench.batchRunning || bench.saveProblem != nil)
-            }
+            if bench.askedBatch != nil { asking(plan) } else { offer(plan) }
         } else if let roll = bench.rollNumber {
             Text("Roll \(roll)").font(Theme.font(11)).foregroundColor(Theme.dim)
+        }
+    }
+
+    private func line(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.font(10)).foregroundColor(Theme.dim)
+            .multilineTextAlignment(.trailing).lineLimit(2)
+            .minimumScaleFactor(0.8)
+            .frame(maxWidth: 240, alignment: .trailing)
+            .layoutPriority(1)
+    }
+
+    private func offer(_ plan: PrintPlan) -> some View {
+        HStack(spacing: 10) {
+            line(bench.planLine(plan))
+            Button(bench.batchTitle(plan)) { bench.printBatch() }
+                .buttonStyle(PrimaryButtonStyle(compact: true))
+                .fixedSize()
+                .disabled(bench.batchRunning || bench.saveProblem != nil)
+        }
+    }
+
+    /// In place of the button, so the yes is under the pointer that asked.
+    private func asking(_ plan: PrintPlan) -> some View {
+        HStack(spacing: 10) {
+            line(bench.askLine(plan))
+            Button("Cancel") { bench.cancelBatch() }
+                .buttonStyle(.plain)
+                .font(Theme.font(12, .bold)).foregroundColor(Theme.text)
+                .fixedSize()
+            Button("Redevelop \(plan.items.count)") { bench.confirmBatch() }
+                .buttonStyle(PrimaryButtonStyle(compact: true))
+                .fixedSize()
+                .disabled(bench.batchRunning || bench.saveProblem != nil)
         }
     }
 }

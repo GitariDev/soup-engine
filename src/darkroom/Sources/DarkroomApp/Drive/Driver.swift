@@ -14,6 +14,7 @@ import SwiftUI
 ///     mouse <x> <y>                     drag <x0> <y0> <x1> <y1>      (window points, top left)
 ///     image-drag <from 0..1> <to 0..1>  size <w> <h>
 ///     print | batch | stop              folder <path>   half <on|off>   name <text>
+///     confirm | cancel                  (a redevelop's question)
 ///     settle                            idle
 ///     wait <ms>                         shot <name>
 ///     dump <label>                      quit
@@ -85,6 +86,8 @@ enum Driver {
         case "print": bench.printCurrent()
         case "batch": bench.printBatch()
         case "stop": bench.stopBatch()
+        case "confirm": bench.confirmBatch()
+        case "cancel": bench.cancelBatch()
         case "folder": bench.setSaveFolder(URL(fileURLWithPath: rest))
         case "half": bench.half = rest == "on"
         case "name": bench.nameDraft = rest
@@ -256,8 +259,11 @@ enum Driver {
             "imageRect": DriverAnchors.imageRect.map { "\($0)" } ?? "",
             "printRect": DriverAnchors.printRect.map { "\($0)" } ?? "",
             "chips": DriverAnchors.chipDump,
+            "printsInFolder": (try? FileManager.default.contentsOfDirectory(atPath: bench.saveFolder.path).count) ?? 0,
             "canPrint": bench.canPrintCurrent, "saveFolder": bench.saveFolder.path,
         ]
+        if let p = bench.plan { out["batchTitle"] = bench.batchTitle(p); out["planLine"] = bench.planLine(p) }
+        if let a = bench.askedBatch { out["askedBatch"] = a.count }
         if let f = bench.current {
             out["frame"] = f.name
             out["state"] = f.state.rawValue
